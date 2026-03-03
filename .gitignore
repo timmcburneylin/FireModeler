@@ -1,0 +1,39 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# R / renv local state
+.Rhistory
+.RData
+.Ruserdata
+renv/library/
+renv/staging/
+renv/python/
+
+# Local config (keep example in git)
+config/config.json
+
+# Generated pipeline outputs
+data/intermediate/
+data/outputs/
+
+# Large or machine-specific raw data (keep folder structure only)
+data/raw/
+!data/raw/.gitkeep
+!data/raw/README.md
+
+# Logs/temp
+*.log
+tmp/
+temp/

@@ -1,0 +1,1809 @@
+---
+title: "Stand_Stock_Tables_MarkDown"
+output: html_document
+date: "2024-03-14"
+---
+
+#load necessary packages
+
+```{r}
+library(plyr)
+library(stringr)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(cffdrs)
+library(dplyr)
+library(magrittr)
+library(XLConnect)
+library(openair)
+library(plyr)
+library(ggplot2)
+library(grid)
+library(tidyr)
+library(reshape2)
+library(readxl)
+library(testthat)
+library(GA)
+library(ftsa)
+library(xlsx)
+library(devtools)
+library(firebehavioR)
+library(kableExtra)
+library(webshot2)
+library(magick)
+library(pagedown)
+```
+
+## Set File Paths change this everytime
+
+```{r}
+# set file path directory
+path = "Z:/Projects/MOF/NE WRR Prescriptions 2025/Modelling/TR_LionsBurn"
+out = path
+name = "TR_LionsBurn"
+project=name
+
+
+# Prefix for SNAP summary file names
+snap_prefix = "/SNAP/"
+cath_prefix = "/Cut Specs for run/"
+s_s_prefix = "/Stand_StockTables/"
+
+
+# Specify the path to the Excel file
+excel_file <- paste0(path, cath_prefix, "Cathro.xlsx")
+```
+
+#1.Export Files
+
+  #Export the Cathro by selecting the "Report" and "Cathro" Button in SNAP. Then select "EXPORT" from the top left corner and save as "Excel (2007+)". The file will open on your computer and save it inside the SNAP folder inside your projects modelling folder as "Cathro.xlsx".
+
+  #read in Extra export csv to establish the number and names of treatments:
+  go to snap and export SNAP_ex.csv document by loading report for your project of interest, then clicking Analysis
+  then selecting your project and choosing "Extra" from the check box list on the left. Make sure some variables 
+  are selected then click okay. Then in the top right corner of the document that pops up click export and save file 
+  The file will open up automatically in excel. Navigate to the top corner and manually resave it as a csv as [Project Name]_EXTRA.csv.
+  Redo this for both the "Overstory" and "Understory", and "Fuels" check boxes, saving them as "[Project Name]_OS.csv" and "[Project Name]_US.csv", and [Project Name]_FUELS.csv respectively.
+
+Make folders inside Modeling Folder: 1 for each treatment
+Stand_StockTables
+  TU1_tables
+  TU2_tables
+  TU3_tables
+  TU4_tables
+  ...
+  ..
+  .
+  
+#2.Load Files & Create Templates and CBH
+This section will load in your exported CSVs and create folders for your stand and stock tables:
+  -Will also create templates for your key files:
+  OS_BA, OS_Vol, OS_SPH, US_SPH, and cbh and ht files
+  -then you fill them in!
+
+```{r}
+# Load in SNAP summaries and cathro
+Snap_OS = read.csv(paste0(path,snap_prefix,name,"_OS.csv"))
+Snap_US = read.csv(paste0(path,snap_prefix,name,"_US.csv"))
+Snap_EX= read.csv(paste0(path,snap_prefix,name,"_EXTRA.csv"))
+n_tre<-unique(Snap_EX$Stratum)
+folder_paths<-(paste0(path,s_s_prefix))
+
+#decide if L1 (12-17) is in overstory or not
+L1_OS<-c(FALSE,FALSE)
+
+#OS Temp
+OSTEMP<-data.frame(
+  DBH.Class= c("12.5 - 17.5","17.5 - 22.5","22.5 - 27.5","27.5 - 35","35 - 45","45+"),
+  Total= c(rep(0,6))
+)
+USTEMP<-data.frame(
+  Layer= c("Layer 4 (<1.3m)","Layer 3 (2.5-7.49)","Layer 2 (7.5-12.49)","Layer 1 (12.5-17.5)"),
+  Total= c(rep(0,4))
+)
+#cut specs
+cut_spec<-data.frame(
+    Stand.Layer=c("L4","L3","L2","L1","L1","L1","L1","L1","L1"),
+    DBH.Class=c("0 - 1.5","1.5 - 7.5","7.5 - 12.5","12.5 - 17.5","17.5 - 22.5" ,"22.5 - 27.5","27.5 - 35","35 - 45", "45+")
+  )
+
+for (treatment in n_tre) {
+  
+  # Create folder names based on Stratum values
+  treatment_folder <- paste0(folder_paths,treatment,"_tables")
+  
+  # Create the directory if it doesn't already exist
+  if (!dir.exists(treatment_folder)) {
+    dir.create(treatment_folder, recursive = TRUE)
+  }
+  
+  #
+  index <- which(n_tre == treatment)
+  
+  if(!L1_OS[index]){
+  OSOUT<-OSTEMP[-1,]
+  USOUT<-USTEMP
+  }else{
+  OSOUT<-OSTEMP
+  USOUT<-USTEMP
+  }
+ 
+  #load snap
+  st_os<-Snap_OS %>% dplyr::filter(Stratum == treatment)
+  st_us<-Snap_US %>% dplyr::filter(Stratum == treatment)
+  
+  #create BA, Vol, SPH, CBH files
+  n_spp_OS<- unique(st_os$Spp)
+  n_spp_US<-unique(st_us$SPP)
+  
+  #add columns
+  OSOUT[n_spp_OS]<-0
+  USOUT[n_spp_US]<-0
+  
+  #EXPORT
+  OSOUT<- OSOUT %>% dplyr::select(-Total)
+  USOUT<- USOUT %>% dplyr::select(-Total)
+  
+    #
+  write.csv(OSOUT,paste0(treatment_folder,"/OS_SPH.csv"),row.names=FALSE)
+  write.csv(OSOUT,paste0(treatment_folder,"/OS_BA.csv"),row.names=FALSE)
+  write.csv(OSOUT,paste0(treatment_folder,"/OS_Vol.csv"),row.names=FALSE)
+  write.csv(USOUT,paste0(treatment_folder,"/US_SPH.csv"),row.names=FALSE)
+  
+  #fake cutspec
+  all_sp<-unique(c(n_spp_OS,n_spp_US))
+  all_sp <- ifelse(all_sp %in% c("Dead", "DU"), "DP", all_sp)
+  cut_spec[all_sp]<-0
+  write.csv(cut_spec,paste0(treatment_folder,"/cuttingSpecs_",treatment,".csv"),row.names=FALSE)
+
+
+  #Ht and cbh
+  #OSht_names<- paste0(n_spp_OS,"_Ht")
+  #OScbh_names<-paste0(n_spp_OS,"_CBH")
+  #OS_ALL<-c(OSht_names,OScbh_names)
+  #OSHT<-OSOUT %>% dplyr::select(-n_spp_OS)
+  #OSHT[OS_ALL]<-0
+  
+  #generate ht and cbh   DBH.Class= c("17.5 - 22.5","22.5 - 27.5","27.5 - 35","35 - 45","45+"),
+
+  #create cbh label
+  st_os$dbh_label <- ifelse(st_os$DBH >= 12.5 & st_os$DBH < 17.5, "12.5 - 17.5",
+    ifelse(st_os$DBH >= 17.5 & st_os$DBH < 22.5, "17.5 - 22.5",
+                     ifelse(st_os$DBH >= 22.5 & st_os$DBH < 27.5, "22.5 - 27.5",
+                     ifelse(st_os$DBH >= 27.5 & st_os$DBH < 35, "27.5 - 35",
+                     ifelse(st_os$DBH >= 35 & st_os$DBH < 45, "35 - 45", "45+")))))
+  
+  cbh_os<- st_os %>%
+    dplyr::group_by(dbh_label,Spp) %>% 
+    dplyr::summarise(
+      cbh=round(mean(CBH..0.1m.,na.rm=T),2)
+    )
+  ht_os<- st_os %>%
+    dplyr::group_by(dbh_label,Spp) %>% 
+    dplyr::summarise(
+      ht=round(mean(Total.Height..m.,na.rm=T),2)
+    )
+  ht_short<-pivot_wider(ht_os,names_from = "Spp", values_from = "ht",names_glue = "{Spp}.Ht")
+  cbh_short<-pivot_wider(cbh_os,names_from = "Spp", values_from = "cbh",names_glue = "{Spp}.CBH")
+  OSHTCBH<-left_join(ht_short,cbh_short, by="dbh_label")
+  colnames(OSHTCBH)[1]<-"DBH.Class"
+  
+  #make sure all layers present
+  expected_dbh <- OSTEMP$DBH.Class
+  OSHTCBH <- OSTEMP %>%
+    dplyr::select(DBH.Class) %>%
+    left_join(OSHTCBH, by = "DBH.Class")
+  
+  #export
+  write.csv(OSHTCBH,paste0(treatment_folder,"/OS_Ht_CBH.csv"),row.names=FALSE)
+
+  #Layer= c("Layer 4 (<1.3m)","Layer 3 (2.5-7.49)","Layer 2 (7.5-12.49)","Layer 1 (12.5-17.5)")
+  #USht_names<- paste0(n_spp_US,"_Ht")
+  #UScbh_names<-paste0(n_spp_US,"_CBH")
+  #US_ALL<-c(USht_names,UScbh_names)
+  #USHT<-USOUT %>% dplyr::select(-n_spp_US)
+  #USHT[US_ALL]<-0
+  
+  
+  cbh_us<- st_us %>%
+    dplyr::group_by(Layer,SPP) %>% 
+    dplyr::summarise(
+      cbh=round(mean(CBH..0.1m.,na.rm=T),2)
+    )
+  ht_us<- st_us %>%
+    dplyr::group_by(Layer,SPP) %>% 
+    dplyr::summarise(
+      ht=round(mean(Height..0.1m.,na.rm=T),2)
+    )
+  ht_short_us<-pivot_wider(ht_us,names_from = "SPP", values_from = "ht",names_glue = "{SPP}.Ht")
+  cbh_short_us<-pivot_wider(cbh_us,names_from = "SPP", values_from = "cbh",names_glue = "{SPP}.CBH")
+  USHTCBH<-left_join(ht_short_us,cbh_short_us, by="Layer")
+  colnames(USHTCBH)[1]<-"Layer"
+
+  #make sure all layers present
+  expected_layers <- USTEMP$Layer
+  USHTCBH <- USTEMP %>%
+    dplyr::select(Layer) %>%
+    left_join(USHTCBH, by = "Layer")
+  
+  #export
+  write.csv(USHTCBH,paste0(treatment_folder,"/US_Ht_CBH.csv"),row.names=FALSE)
+}
+
+
+```
+  
+#3. Manual US Changes
+  
+```{r}
+# Assign height values based on Layer if Height is NA
+Snap_US$Height..0.1m.[is.na(Snap_US$Height..0.1m.) & Snap_US$Layer == "Layer 2 (7.5-12.49)"] <- 5
+Snap_US$Height..0.1m.[is.na(Snap_US$Height..0.1m.) & Snap_US$Layer == "Layer 3 (2.5-7.49)"] <- 3
+Snap_US$Height..0.1m.[is.na(Snap_US$Height..0.1m.)] <- 1  
+# Assign CBH values based on Layer if CBH is NA
+Snap_US$CBH..0.1m.[is.na(Snap_US$CBH..0.1m.) & Snap_US$Layer == "Layer 2 (7.5-12.49)"] <- 1.5
+Snap_US$CBH..0.1m.[is.na(Snap_US$CBH..0.1m.) & Snap_US$Layer == "Layer 3 (2.5-7.49)"] <- 1
+Snap_US$CBH..0.1m.[is.na(Snap_US$CBH..0.1m.)] <- 0  # default for others
+
+
+```  
+
+#4.Strata Data: Vol, BA, SPH
+  
+  4.1 Create Vol BA, SPH from exported Snap documents:
+  
+```{r}
+#read in master xls
+#test_cath<-read.xlsx("C:/Users/Holden/OneDrive/Desktop/test.xls",1)
+Cath_master<-read.xlsx(excel_file,1)
+colnames(Cath_master)[1]<-c("Focus_Column")
+
+No_Trees_df<-data.frame(
+  DBH.Class= c("17.5 - 22.5","22.5 - 27.5","27.5 - 35","35 - 45","45+", "Total"),
+  Total= c(rep(0,6))
+)
+No_Trees_US<-data.frame(
+  Layer= c("Layer 4 (<1.3m)","Layer 3 (2.5-7.49)","Layer 2 (7.5-12.49)","Layer 1 (12.5-17.5)"),
+  Total= c(rep(0,4))
+)
+
+#import stratas
+stratas<-unique(Snap_EX$Stratum)
+
+
+#Iterate over treatments
+for(i in 1:length(stratas)){
+  st<-stratas[i]
+#
+  treat_OS <- Snap_OS %>%
+  filter(Stratum == st)
+  treat_US <- Snap_US %>%
+  filter(Stratum == st)
+  
+  #get number of species then add 2 for DU and DP
+  n_spp<-length(unique(treat_OS$Spp))
+  
+ if (st %in% treat_OS$Stratum) {
+#extract overstory Basal Area Summary
+BA<- "Overstory Basal Area Summary"
+#find rows where overstory BA starts: should refer to all tratments
+rows_start_BA <- Cath_master[Cath_master$Focus_Column == BA, ]
+#get row numbers
+row_numbers_BA <- which(rownames(Cath_master) %in% rownames(rows_start_BA))
+#get specific row number for start of exportable part by iterating down list of row numbers you extracted above
+BA_start<-row_numbers_BA[i]+2
+#add end row number based on 1 header row and 6 dbh class rows(including total)
+BA_end<-row_numbers_BA[i]+8
+#find number of columnns for SPH df part of Cath report: take number of species and add 6. 5 of which are for the merged columns at the beginning, and 1 of which are for the total column.
+if(n_spp == 0){   col_end_BA<- n_spp+5 } else{   col_end_BA<-n_spp+7 }
+#read in specific DF with row indices
+BA_xls<-xlsx::read.xlsx(excel_file,1,startRow =BA_start,endRow =BA_end,colIndex =c(5:col_end_BA))
+BA_xls[is.na(BA_xls)] <- 0
+
+if(colnames(BA_xls)[1] != "DBH.Class"){
+  colnames(BA_xls)<-BA_xls[1,]
+  colnames(BA_xls)[1]<-"DBH.Class"
+}else{
+  colnames(BA_xls)[1]<-"DBH.Class"
+}
+
+if(BA_xls$DBH.Class[1]=="DBH Class" | BA_xls$DBH.Class[1]=="DBH.Class" ){
+  BA_xls<-BA_xls[-1,]
+}
+
+write.csv(BA_xls,paste0(path,s_s_prefix,st,"_tables/","OS_BA.csv"),row.names = FALSE)
+ } else{
+  BA_xls<-No_Trees_df
+  write.csv(BA_xls,paste0(path,s_s_prefix,st,"_tables/","OS_BA.csv"),row.names = FALSE)
+
+}
+
+  if (st %in% treat_OS$Stratum) {
+#extract overstory Volume Summary
+Vol<- "Overstory Volume Summary"
+#find rows where overstory Vol starts: should refer to all tratments
+rows_start_Vol <- Cath_master[Cath_master$Focus_Column == Vol, ]
+#get row numbers
+row_numbers_Vol <- which(rownames(Cath_master) %in% rownames(rows_start_Vol))
+#get specific row number for start of exportable part by iterating down list of row numbers you extracted above
+Vol_start<-row_numbers_Vol[i]+2
+#add end row number based on 1 header row and 6 dbh class rows(including total)
+Vol_end<-row_numbers_Vol[i]+8
+#find number of columns for SPH df part of Cathro report: take number of species and add 6. 5 of which are for the merged columns at the beginning, and 1 of which are for the total column.
+if(n_spp == 0){   col_end_Vol<- n_spp+8 } else{   col_end_Vol<-n_spp+10 }
+#read in specific DF with row indices
+Vol_xls<-xlsx::read.xlsx(excel_file,1,startRow =Vol_start,endRow =Vol_end,colIndex =c(5:col_end_Vol))
+#remove_NA's
+Vol_xls[is.na(Vol_xls)]<-0
+
+if(colnames(Vol_xls)[1] != "DBH.Class"){
+  colnames(Vol_xls)<-Vol_xls[1,]
+  colnames(Vol_xls)[1]<-"DBH.Class"
+}else{
+  colnames(Vol_xls)[1]<-"DBH.Class"
+}
+
+if(Vol_xls$DBH.Class[1]=="DBH Class" | Vol_xls$DBH.Class[1]=="DBH.Class" ){
+  Vol_xls<-Vol_xls[-1,]
+}
+
+#export CSVs
+write.csv(Vol_xls,paste0(path,s_s_prefix,st,"_tables/","OS_Vol.csv"),row.names = FALSE)
+} else{
+  Vol_xls<-No_Trees_df
+  write.csv(Vol_xls,paste0(path,s_s_prefix,st,"_tables/","OS_Vol.csv"),row.names = FALSE)
+
+}
+  
+  if (st %in% treat_OS$Stratum) {
+#extract overstory SPH Summary
+SPH<- "Overstory SPH Summary"
+#find rows where overstory SPH starts: should refer to all tratments
+rows_start_SPH <- Cath_master[Cath_master$Focus_Column == SPH, ]
+#get row numbers
+row_numbers_SPH <- which(rownames(Cath_master) %in% rownames(rows_start_SPH))
+#get specific row number for start of exportable part by iterating down list of row numbers you extracted above
+SPH_start<-row_numbers_SPH[i]+2
+#add end row number based on 1 header row and 6 dbh class rows(including total)
+SPH_end<-row_numbers_SPH[i]+8
+#find number of columns for SPH df part of Cathro report: take number of species and add 6. 5 of which are for the merged columns at the beginning, and 1 of which are for the total column.
+if(n_spp == 0){   col_end_SPH <- n_spp + 8 } else{   col_end_SPH<-n_spp+10 }
+#read in specific DF with row indices
+SPH_xls<-xlsx::read.xlsx(excel_file,1,startRow =SPH_start,endRow =SPH_end,colIndex =c(5:col_end_SPH))
+#remove_NA's
+SPH_xls[is.na(SPH_xls)]<-0
+
+if(colnames(SPH_xls)[1] != "DBH.Class"){
+  colnames(SPH_xls)<-SPH_xls[1,]
+  colnames(SPH_xls)[1]<-"DBH.Class"
+}else{
+  colnames(SPH_xls)[1]<-"DBH.Class"
+}
+if(SPH_xls$DBH.Class[1]=="DBH.Class" | SPH_xls$DBH.Class[1]=="DBH Class" ){
+  SPH_xls<-SPH_xls[-1,]
+}
+
+#export CSVs
+write.csv(SPH_xls,paste0(path,s_s_prefix,st,"_tables/","OS_SPH.csv"),row.names = FALSE)
+} else{
+  SPH_xls<-No_Trees_df
+  write.csv(SPH_xls,paste0(path,s_s_prefix,st,"_tables/","OS_SPH.csv"),row.names = FALSE)
+
+}
+  
+  
+   if (st %in% treat_US$Stratum) {
+     
+#extract understory SPH Summary
+sph<- "Stratum UNDERSTORY - SPH"
+#find rows where understory SPH starts: should refer to all tratments
+rows_start_sph <- Cath_master[Cath_master$Focus_Column == sph, ]
+#get row numbers
+row_numbers_sph <- which(rownames(Cath_master) %in% rownames(rows_start_sph))
+#get specific row number for start of exportable part by iterating down list of row numbers you extracted above
+sph_start<-row_numbers_sph[i]+2
+#add end row number based on 1 header row and 6 dbh class rows(including total)
+n_layer<- length(unique(treat_US$Layer))
+if(n_layer == 3){   sph_end<- row_numbers_sph[i]+n_layer+2 } else{   sph_end<-row_numbers_sph[i]+n_layer+2 }
+
+#find number of columns for SPH df part of Cathro report: take number of species and add 6. 5 of which are for the merged columns at the beginning, and 1 of which are for the total column.
+if(n_spp == 0){   col_end_sph<- n_spp+8 } else{   col_end_sph<-n_spp+10 }
+#read in specific DF with row indices
+sph_xls<-xlsx::read.xlsx(excel_file,1,startRow =sph_start,endRow =sph_end,colIndex =c(5:col_end_sph))
+#remove_NA's
+sph_xls[is.na(sph_xls)]<-0
+
+if(colnames(sph_xls)[1] != "Layer"){
+  colnames(sph_xls)<-sph_xls[1,]
+  colnames(sph_xls)[1]<-"Layer"
+}else{
+  colnames(sph_xls)[1]<-"Layer"
+}
+
+if(sph_xls$Layer[1]=="Layer"| sph_xls$Layer[1]=="Layer" ){
+  sph_xls<-sph_xls[-1,]
+}
+#export CSVs
+write.csv(sph_xls,paste0(path,s_s_prefix,st,"_tables/","US_SPH.csv"),row.names = FALSE)
+} else{
+  sph_xls<-No_Trees_df
+  write.csv(sph_xls,paste0(path,s_s_prefix,st,"_tables/","US_SPH.csv"),row.names = FALSE)
+}
+}
+
+```
+
+  4.2 Create CBH, HT, SPH files from exported Snap documents:
+
+```{r}
+# Assuming Snap_OS is your dataframe add DBH class column
+Snap_OS$DBH.Class <- ifelse(Snap_OS$DBH >= 12.5 & Snap_OS$DBH < 17.5, "12.5 - 17.5",
+                            ifelse(Snap_OS$DBH >= 17.5 & Snap_OS$DBH < 22.5, "17.5 - 22.5",
+                            ifelse(Snap_OS$DBH >= 22.5 & Snap_OS$DBH < 27.5, "22.5 - 27.5",
+                                   ifelse(Snap_OS$DBH >= 27.5 & Snap_OS$DBH < 35, "27.5 - 35",
+                                          ifelse(Snap_OS$DBH >= 35 & Snap_OS$DBH < 45, "35 - 45",
+                                                 "45+")))))
+
+DBH_order<- c("12.5 - 17.5","17.5 - 22.5","22.5 - 27.5","27.5 - 35","35 - 45", "45+")
+
+#create SPH, CBH and Ht dataframes for OS and US
+stratas<- unique(Snap_EX$Stratum)
+
+for (i in 1:length(stratas)) {
+  st<-stratas[i]
+  #
+  treat_OS <- Snap_OS %>%
+  filter(Stratum == st)
+  treat_US <- Snap_US %>%
+  filter(Stratum == st)
+  
+###########################################
+#######################################################    
+  #Get Mean Height and CBH for OS
+if (st %in% treat_OS$Stratum) {
+ OS_ht_cbh <- treat_OS %>%
+  filter(!is.na(DBH)) %>%
+  dplyr::group_by(Spp,DBH.Class) %>%
+  dplyr::summarise(.Ht = mean(Total.Height..m.),
+            .CBH = mean(CBH..0.1m., na.rm = TRUE)) %>% 
+   tidyr::pivot_wider(names_from = Spp, values_from = c(.Ht, .CBH), names_glue = "{Spp}{.value}")
+ OS_ht_cbh[, -1] <- lapply(OS_ht_cbh[, -1], as.numeric)
+ #
+ OS_ht_cbh$DBH.Class <- factor(OS_ht_cbh$DBH.Class, levels = DBH_order)
+ 
+# Identify missing levels
+missing_levels <- setdiff(DBH_order, unique(OS_ht_cbh$DBH.Class))
+
+# Create a data frame of missing levels with NAs for other columns
+if(!is.na(missing_levels[1])){
+missing_df <- data.frame(DBH.Class = factor(missing_levels, levels = DBH_order))
+for(col in setdiff(names(OS_ht_cbh), "DBH.Class")) {
+  missing_df[[col]] <- NA
+}
+}
+missing_df <- data.frame(DBH.Class = factor(missing_levels, levels = DBH_order))
+OS_ht_cbh <- dplyr::bind_rows(OS_ht_cbh, missing_df)
+ OS_ht_cbh <- arrange(OS_ht_cbh, DBH.Class)
+  #
+ OS_ht_cbh[is.na(OS_ht_cbh)]<-0
+ write.csv(OS_ht_cbh,paste0(path,s_s_prefix,st,"_tables/","OS_Ht_CBH.csv"),row.names = FALSE)
+} else {
+  OS_ht_cbh <- No_Trees_df
+ write.csv(OS_ht_cbh,paste0(path,s_s_prefix,st,"_tables/","OS_Ht_CBH.csv"),row.names = FALSE)
+}
+###########################################################################   
+   #Get Mean Height and CBH for US
+ if (st %in% treat_US$Stratum) {
+ US_ht_cbh <- treat_US %>%
+  filter(!is.na(Height..0.1m.)) %>%
+  dplyr::group_by(SPP, Layer) %>%
+  dplyr::summarise(.Ht = mean(Height..0.1m.),
+            .CBH = weighted.mean(CBH..0.1m.,X..of.Trees, na.rm = TRUE)) %>%
+  tidyr::pivot_wider(names_from = SPP, values_from = c(.Ht, .CBH), names_glue = "{SPP}{.value}")
+  US_ht_cbh[, -1] <- lapply(US_ht_cbh[, -1], as.numeric)
+US_ht_cbh[is.na(US_ht_cbh)]<-0
+ write.csv(US_ht_cbh,paste0(path,s_s_prefix,st,"_tables/","US_Ht_CBH.csv"),row.names = FALSE)
+} else {
+  US_ht_cbh <- No_Trees_US
+   write.csv(US_ht_cbh,paste0(path,s_s_prefix,st,"_tables/","US_SPH.csv"),row.names = FALSE)
+}
+
+}
+
+
+``` 
+ 
+
+#5.Create Manual Cutting Specs Files
+  
+  Find Template Here: "Z:\Scripts\FronteraCodez\Modeling Templates\Modeling\cuttingSpecs.csv"
+  
+  Modify and delete Species as needed and save it like below:
+  
+  Document should be called cuttingSpecs in Stand_StockTables/Tu"treatment number"_tables folder.
+------
+  ie for treatment 1 cuttingSpecs.csv document is located at
+  
+  ~(Project) Modeling/Stand_StockTables/Tu1_Tables/cuttingSpecs.csv
+  
+  and one called
+  
+  cuttingSpecs_[trname].csv
+-------
+
+  Table must have these two columns first: 
+Stand.Layer
+L4
+L3
+L2
+L1
+L1
+L1
+L1
+L1
+L1
+
+-----------------------
+DBH.Class
+0-1.5
+1.5-7.5
+7.5-12.5
+12.5-17.5
+17.5-22.5
+22.5-27.5
+27.5-35
+35-45
+45+
+
+Then a column for each appropriate species labeled with code and first letter capitalized. Non-changes should be zero and values should be in percent. (ie 90% --> 90, 75% -->75)
+  
+
+#6. Create Stand and Stock Tables
+  
+  6.1 Run code below for each treatment unit should produce stand and stock tables in appropriate folder as html and pdf and excel in the output folder
+
+```{r}
+#import stratas
+stratas<-unique(Snap_EX$Stratum)
+
+#iterate over treatments
+for(i in 1:length(unique(Snap_EX$Stratum))){
+ 
+TR<- stratas[i]
+table_folder<- paste0(TR,"_tables/")
+
+###########################################################################################################
+cuttingSpecs <- read.csv(file = paste0(path,s_s_prefix,table_folder,"cuttingSpecs_",TR,".csv"), row.names = NULL, stringsAsFactors = FALSE)
+OS_SPH <- read.csv(file = paste0(path,s_s_prefix,table_folder,"OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+OS_BA <- read.csv(file = paste0(path,s_s_prefix,table_folder,"OS_BA.csv"), row.names = NULL, stringsAsFactors = FALSE)
+OS_Vol <- read.csv(file = paste0(path,s_s_prefix,table_folder,"OS_Vol.csv"), row.names = NULL, stringsAsFactors = FALSE)
+OS_Ht_CBH <- read.csv(file = paste0(path,s_s_prefix,table_folder,"OS_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+US_SPH <- read.csv(file = paste0(path,s_s_prefix,table_folder,"US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+US_Ht_CBH <- read.csv(file = paste0(path,s_s_prefix,table_folder,"US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+###remove first column
+#remove columns that start with NA
+US_SPH <- US_SPH[, !grepl("^NA", names(US_SPH))]
+OS_SPH<- OS_SPH[, !grepl("^NA", names(OS_SPH))]
+
+#######################
+coniferList <- c("Ba","Bl", "Bg","Bb","Cw", "Fd", "Hw","T","Pl", "Sx","Sb","Sw", "Lw", "Lt", "Pw","Yc", "Fdi", "Fdc", "Py")
+nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
+
+# 1. Overstorey
+
+# Height and CBH
+
+OS_Ht_CBH_melt <- reshape2::melt(OS_Ht_CBH, id = "DBH.Class")
+OS_Ht_CBH_melt$Species <- gsub("\\.", "", substr(OS_Ht_CBH_melt$variable, start = 1, stop = 3))
+
+#check for yew
+OS_Ht_CBH_melt$Species[OS_Ht_CBH_melt$Species == "T."] <- "T"
+
+OS_Ht <- OS_Ht_CBH_melt[grep(pattern = "Ht", OS_Ht_CBH_melt$variable, fixed = TRUE),]
+names(OS_Ht)[names(OS_Ht) == "value"] <- "Mean_Height"
+OS_Ht <- subset(OS_Ht, select = -c(variable))
+
+OS_CBH <- OS_Ht_CBH_melt[grep(pattern = "CBH", OS_Ht_CBH_melt$variable, fixed = TRUE),]
+names(OS_CBH)[names(OS_CBH) == "value"] <- "Mean_CBH"
+OS_CBH <- subset(OS_CBH, select = -c(variable))
+
+OS_output <- merge(OS_CBH, OS_Ht, all = TRUE)
+
+# Species per hectare
+
+OS_SPH_melt <- reshape2::melt(OS_SPH, id = "DBH.Class")
+setnames(OS_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
+
+OS_output <- merge(OS_output, OS_SPH_melt,  by =  c("Species", "DBH.Class"), all = TRUE)
+
+# Basal area
+
+OS_BA_melt <- reshape2::melt(OS_BA, id = "DBH.Class")
+setnames(OS_BA_melt, old = c("variable", "value"), new = c("Species", "BA"))
+
+OS_output <- merge(OS_output, OS_BA_melt,  by =  c("Species", "DBH.Class"), all = TRUE)
+
+# Volume
+
+OS_Vol_melt <- reshape2::melt(OS_Vol, id = "DBH.Class")
+setnames(OS_Vol_melt, old = c("variable", "value"), new = c("Species", "Volume"))
+
+OS_output <- merge(OS_output, OS_Vol_melt,  by =  c("Species", "DBH.Class"), all = TRUE)
+
+###########
+
+setnames(OS_output, old = c("DBH.Class"), new = c("DBH_class"))
+
+OS_output[OS_output == "12.5 - 17.5"] = "Layer 1 (12.5 - 17.5 cm dbh)"
+OS_output[OS_output == "17.5 - 22.5"] = "Layer 1 (17.5 - 22.5 cm dbh)"
+OS_output[OS_output == "22.5 - 27.5"] = "Layer 1 (22.5 - 27.5 cm dbh)"
+OS_output[OS_output == "27.5 - 35"] = "Layer 1 (27.5 - 35 cm dbh)"
+OS_output[OS_output == "35 - 45"] = "Layer 1 (35 - 45 cm dbh)"
+OS_output[OS_output == "45+"] = "Layer 1 (45+ cm dbh)"
+
+# 2. Understorey
+
+# Height and CBH
+
+US_Ht_CBH_melt <- reshape2::melt(US_Ht_CBH, id = "Layer")
+US_Ht_CBH_melt$Species <- gsub("\\.", "", substr(US_Ht_CBH_melt$variable, start = 1, stop = 3))
+
+
+#Check for yew
+US_Ht_CBH_melt$Species[US_Ht_CBH_melt$Species == "T."] <- "T"
+US_Ht_CBH_melt$Species[US_Ht_CBH_melt$Species == "Dea"] <- "DP"
+
+US_Ht <- US_Ht_CBH_melt[grep(pattern = "Ht", US_Ht_CBH_melt$variable, fixed = TRUE),]
+names(US_Ht)[names(US_Ht) == "value"] <- "Mean_Height"
+US_Ht <- subset(US_Ht, select = -c(variable))
+
+US_CBH <- US_Ht_CBH_melt[grep(pattern = "CBH", US_Ht_CBH_melt$variable, fixed = TRUE),]
+names(US_CBH)[names(US_CBH) == "value"] <- "Mean_CBH"
+US_CBH <- subset(US_CBH, select = -c(variable))
+
+US_output <- merge(US_CBH, US_Ht, all = TRUE)
+
+# Species per hectare
+  #change Dead to DP
+if ("Dead" %in% colnames(US_SPH)) {
+  colnames(US_SPH)[colnames(US_SPH) == "Dead"] <- "DP"
+}
+
+US_SPH_melt <- reshape2::melt(US_SPH, id = "Layer")
+setnames(US_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
+
+US_output <- merge(US_output, US_SPH_melt,  by =  c("Species", "Layer"), all = TRUE)
+
+##############
+
+US_output$BA <- NA
+US_output$Volume <- NA
+
+setnames(US_output, old = c("Layer"), new = c("DBH_class"))
+US_output[US_output == "Layer 1 (12.5-17.5)"] = "Layer 1 (12.5 - 17.5 cm dbh)"
+
+# Joining overstorey and understorey
+
+All_output <- rbind(OS_output, US_output)
+All_output <- All_output[!duplicated(All_output),]
+
+  # Will depend whether Dead Useless or Dead Potential 
+All_output[All_output == "Dead"] = "DU"
+
+  # Remove totals for species across all diameter classes
+All_output <- All_output[which(All_output$DBH_class != "Total"),]
+  #remove rows where sph = 0
+All_output <- All_output %>% filter(Species != "X")
+All_output <- All_output %>% filter(Species !="Total")
+
+# Joining the cutting specs
+
+cuttingSpecs <- subset(cuttingSpecs, select = -c(Stand.Layer))
+cuttingSpecs_melt <- reshape2::melt(cuttingSpecs, id = "DBH.Class")
+setnames(cuttingSpecs_melt, old = c("DBH.Class", "variable", "value"), new = c("DBH_class", "Species", "Cutting_Spec"))
+
+cuttingSpecs_melt[cuttingSpecs_melt == "0 - 1.5"] = "Layer 4 (<1.3m)"
+cuttingSpecs_melt[cuttingSpecs_melt == "1.5 - 7.5"] = "Layer 3 (2.5-7.49)"
+cuttingSpecs_melt[cuttingSpecs_melt == "7.5 - 12.5"] = "Layer 2 (7.5-12.49)"
+cuttingSpecs_melt[cuttingSpecs_melt == "12.5 - 17.5"] = "Layer 1 (12.5 - 17.5 cm dbh)"
+cuttingSpecs_melt[cuttingSpecs_melt == "17.5 - 22.5"] = "Layer 1 (17.5 - 22.5 cm dbh)"
+cuttingSpecs_melt[cuttingSpecs_melt == "22.5 - 27.5"] = "Layer 1 (22.5 - 27.5 cm dbh)"
+cuttingSpecs_melt[cuttingSpecs_melt == "27.5 - 35"] = "Layer 1 (27.5 - 35 cm dbh)"
+cuttingSpecs_melt[cuttingSpecs_melt == "35 - 45"] = "Layer 1 (35 - 45 cm dbh)"
+cuttingSpecs_melt[cuttingSpecs_melt == "45+"] = "Layer 1 (45+ cm dbh)"
+
+All_output <- merge(All_output, cuttingSpecs_melt,  by =  c("Species", "DBH_class"), all.x = TRUE)
+
+# Calculating cut and leave
+All_output <- All_output %>% mutate(SPH_cut = round(SPH*Cutting_Spec/100, digits = 0)) %>%
+                             mutate(SPH_leave = round(SPH*(100-Cutting_Spec)/100, digits = 0)) %>%
+                             mutate(Volume_cut = round(Volume*Cutting_Spec/100, digits = 0)) %>%
+                             mutate(Volume_leave = round(Volume*(100-Cutting_Spec)/100, digits = 0)) %>%
+                             mutate(BA_cut = round(BA*Cutting_Spec/100, digits = 0)) %>%
+                             mutate(BA_leave = round(BA*(100-Cutting_Spec)/100, digits = 0))
+
+
+All_output <- All_output[!is.na(All_output$SPH),]
+All_output<-All_output[All_output$SPH != 0,]
+All_output <- All_output[!All_output$Species == "Total",]
+All_output[is.na(All_output)]<-0
+
+# Set height values for dead trees
+
+All_output[which(All_output$Species == "DP" & All_output$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)"), c("Mean_Height")] <- 8
+All_output[which(All_output$Species == "DU" & All_output$DBH_class == "Layer 3 (2.5-7.49)"), c("Mean_Height")] <- 2
+All_output[which(All_output$Species == "DU" & All_output$DBH_class == "Layer 4 (<1.3m)"), c("Mean_Height")] <- 1
+
+# Calculating Totals
+
+All_output <- mutate(All_output, Decay = ifelse(All_output$Species == "DP" | All_output$Species == "DU", "Dead", "Live"))
+All_output <- mutate(All_output, Conifer = ifelse(All_output$Species %in% coniferList, "Coniferous", "Other"))
+
+All_output$Mean_CBH[All_output$Conifer != "Coniferous"] <- NA
+
+#
+All_output$Mean_CBH<-as.numeric(All_output$Mean_CBH)
+All_output$Mean_Height<-as.numeric(All_output$Mean_Height)
+#
+
+All_output <- mutate(All_output, CBH_forWtMean = All_output$Mean_CBH*All_output$SPH)
+
+All_output <- mutate(All_output, Ht_forWtMean = All_output$Mean_Height*All_output$SPH)
+All_output$CBH_forWtMean[is.na(All_output$CBH_forWtMean)]<-0
+All_output$Ht_forWtMean[is.na(All_output$Ht_forWtMean)]<-0
+# Conifer
+
+coniferTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                Volume, Volume_cut, Volume_leave,
+                BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Conifer+DBH_class,
+                data = All_output, FUN = sum, na.action = na.pass)
+
+coniferTemp <- coniferTemp %>% 
+  filter(Conifer == "Coniferous") %>%
+  mutate(Species = "Total Conifer") %>%
+  mutate(Mean_CBH = round(CBH_forWtMean/SPH, digits = 1)) %>%
+  mutate(Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-Conifer, -CBH_forWtMean, -Ht_forWtMean)
+
+existingLayers <- c("Layer 4 (<1.3m)",
+                    "Layer 3 (2.5-7.49)",
+                    "Layer 2 (7.5-12.49)",
+                    "Layer 1 (12.5 - 17.5 cm dbh)",
+                    "Layer 1 (17.5 - 22.5 cm dbh)",
+                    "Layer 1 (22.5 - 27.5 cm dbh)",
+                    "Layer 1 (27.5 - 35 cm dbh)",
+                    "Layer 1 (35 - 45 cm dbh)",
+                    "Layer 1 (45+ cm dbh)")
+
+coniferLayers <- unique(coniferTemp$DBH_class)
+missingLayers <- existingLayers[!(existingLayers %in% coniferLayers)]
+
+if(length(missingLayers) > 0){
+
+  coniferTempFill <- data.frame(Species = "Total Conifer", DBH_class = missingLayers,
+                       SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                       Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                       BA = 0, BA_cut = 0, BA_leave = 0,
+                       Mean_CBH = NA, Mean_Height = NA)
+  
+  coniferTemp <- rbind.fill(coniferTemp, coniferTempFill)
+}
+  
+# All Live
+
+liveTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                               Volume, Volume_cut, Volume_leave,
+                               BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Decay+DBH_class,
+                               data = All_output, FUN = sum, na.action = na.pass)
+
+liveTemp <- liveTemp %>% 
+  filter(Decay == "Live") %>%
+  mutate(Species = "Total Live") %>%
+  mutate(Mean_CBH = round(CBH_forWtMean/SPH, digits = 1)) %>%
+  mutate(Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-Decay, -CBH_forWtMean, -Ht_forWtMean)
+
+
+liveLayers <- unique(liveTemp$DBH_class)
+missingLayers <- existingLayers[!(existingLayers %in% liveLayers)]
+
+if(length(missingLayers) > 0){
+  
+  liveTempFill <- data.frame(Species = "Total Live", DBH_class = missingLayers,
+                                SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                                Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                                BA = 0, BA_cut = 0, BA_leave = 0,
+                                Mean_CBH = NA, Mean_Height = NA)
+  
+  liveTemp <- rbind.fill(liveTemp, liveTempFill)
+}
+
+  # Everything per layer
+
+allPerLayerTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                               Volume, Volume_cut, Volume_leave,
+                               BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ DBH_class,
+                         data = All_output, FUN = sum, na.action = na.pass)
+
+allPerLayerTemp <- allPerLayerTemp %>% mutate(Species = "Total All Species") %>%
+            mutate(Mean_CBH = round(CBH_forWtMean/SPH, digits = 1)) %>%
+            mutate(Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-CBH_forWtMean, -Ht_forWtMean)
+
+allLayers <- unique(allPerLayerTemp$DBH_class)
+missingLayers <- existingLayers[!(existingLayers %in% allLayers)]
+
+if(length(missingLayers) > 0){
+  
+  allPerLayerTempFill <- data.frame(Species = "Total All Species", DBH_class = missingLayers,
+                             SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                             Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                             BA = 0, BA_cut = 0, BA_leave = 0,
+                             Mean_CBH = NA, Mean_Height = NA)
+  
+  allPerLayerTemp <- rbind.fill(allPerLayerTemp, allPerLayerTempFill)
+}
+
+
+  # Everything per layer
+
+allTemp <- data.frame(Species = "Total All Layers", DBH_class = NA,
+                                  SPH = sum(All_output$SPH, na.rm = T), SPH_cut = sum(All_output$SPH_cut, na.rm = T), SPH_leave = sum(All_output$SPH_leave, na.rm = T),
+                                  Volume = sum(All_output$Volume, na.rm = T), Volume_cut = sum(All_output$Volume_cut, na.rm = T), Volume_leave = sum(All_output$Volume_leave, na.rm = T),
+                                  BA = sum(All_output$BA, na.rm = T), BA_cut = sum(All_output$BA_cut, na.rm = T), BA_leave = sum(All_output$BA_leave, na.rm = T),
+                                  CBH_forWtMean = sum(All_output$CBH_forWtMean), Ht_forWtMean = sum(All_output$Ht_forWtMean, na.rm = T))
+
+allTemp <- allTemp %>% mutate(Mean_CBH=round(CBH_forWtMean/SPH,digits = 1),
+                              Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-c("CBH_forWtMean","Ht_forWtMean"))
+  # Layer-1 specific
+
+L1temp <- All_output[grep(pattern = "Layer 1", All_output$DBH_class, fixed = TRUE),]
+
+    # Conifers
+
+L1conifer <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                           Volume, Volume_cut, Volume_leave,
+                           BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Conifer,
+                     data = L1temp, FUN = sum, na.rm = TRUE, na.action = na.pass)
+
+L1conifer <- L1conifer %>% filter(Conifer == "Coniferous") %>%
+              mutate(Species = "Total Layer 1 - Conifers Only") %>%
+              mutate(DBH_class = "Total Layer 1") %>%
+              mutate(Mean_CBH = round(CBH_forWtMean/SPH, digits = 1)) %>%
+              mutate(Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-c("Conifer", "CBH_forWtMean", "Ht_forWtMean"))
+
+    # All Species
+
+L1all <- L1temp %>% dplyr::select(SPH, SPH_cut, SPH_leave,
+                           Volume, Volume_cut, Volume_leave,
+                           BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean)
+
+L1all <- as.data.frame(t(colSums(L1all, na.rm = TRUE)))
+
+L1all <- L1all %>% mutate(Species = "Total Layer 1 - All Species") %>%
+                    mutate(DBH_class = "Total Layer 1") %>%
+                    mutate(Mean_CBH = round(CBH_forWtMean/SPH, digits = 1)) %>%
+                    mutate(Mean_Height = round(Ht_forWtMean/SPH, digits = 1)) %>%
+  dplyr::select(-c("CBH_forWtMean", "Ht_forWtMean"))
+
+    # Dead Potential
+
+existingDPlayers <- All_output$DBH_class[All_output$Species == "DP"]
+
+allDPlayers <- c("Layer 2 (7.5-12.49)",
+                 "Layer 1 (12.5 - 17.5 cm dbh)",
+                 "Layer 1 (17.5 - 22.5 cm dbh)",
+                 "Layer 1 (22.5 - 27.5 cm dbh)",
+                 "Layer 1 (27.5 - 35 cm dbh)",
+                 "Layer 1 (35 - 45 cm dbh)",
+                 "Layer 1 (45+ cm dbh)")
+
+missingDPlayers <- allDPlayers[!(allDPlayers %in% existingDPlayers)]
+
+DPtemp <- data.frame(Species = "DP", DBH_class = missingDPlayers,
+           SPH = 0, SPH_cut = 0, SPH_leave = 0,
+           Volume = 0, Volume_cut = 0, Volume_leave = 0,
+           BA = 0, BA_cut = 0, BA_leave = 0)
+
+# Put everything together...
+
+All_output <- rbind.fill(All_output, coniferTemp, liveTemp, allPerLayerTemp, allTemp, L1conifer, L1all, DPtemp)
+
+# Reformatting
+
+All_output <- All_output[,c("Species", "DBH_class", "Mean_CBH", "Mean_Height",
+                            "SPH", "SPH_cut", "SPH_leave",
+                            "Volume", "Volume_cut", "Volume_leave",
+                            "BA", "BA_cut", "BA_leave",
+                            "Cutting_Spec")]
+
+setnames(All_output, old = c("SPH", "Volume", "BA", "Cutting_Spec"), new = c("SPH_exist", "Volume_exist", "BA_exist", "Cutting_spec"))
+
+All_output$Species[All_output$Species == "DP"] <- "Total Dead Potential"
+All_output$DBH_class[All_output$DBH_class == "Layer 2 (7.5-12.49)"] <- "Layer 2 (7.5 - 12.49 cm dbh)"
+All_output$DBH_class[All_output$DBH_class == "Layer 3 (2.5-7.49)"] <- "Layer 3 (2.5 - 7.49 cm dbh)"
+All_output$DBH_class[All_output$DBH_class == "Layer 4 (<1.3m)"] <- "Layer 4 (<1.3 cm dbh)"
+
+All_output$Cutting_spec[is.na(All_output$Cutting_spec)] <- 0
+
+#changed to keep cbh calculation for totals despite only including conifers
+totallingLayers <- c("Total All Species",
+                     "Total Dead Potential",
+                     "Total Live",
+                 "Total Layer 1 - All Species")
+
+#totallingLayers <- c( "Total Dead Potential","Total Layer 1 - All Species")
+
+VolBA <- c("Volume_exist",
+           "Volume_cut",
+           "Volume_leave",
+           "BA_exist",
+           "BA_cut",
+           "BA_leave")
+
+USlayers <- c("Layer 2 (7.5 - 12.49 cm dbh)",
+              "Layer 3 (2.5 - 7.49 cm dbh)",
+              "Layer 4 (<1.3 cm dbh)")
+
+#All_output$Mean_CBH[which(All_output$Species %in% totallingLayers)] <- "-"
+
+All_output[which(All_output$DBH_class %in% USlayers), which(colnames(All_output) %in% VolBA)] <- "-"
+
+#All_output[is.na(All_output)] <- "-"
+
+All_output$Species <- factor(All_output$Species, levels = c(coniferList,
+                                                            nonConiferList[!nonConiferList == "DP"],
+                                                            "Total Dead Potential",
+                                                            "Total Live",
+                                                            "Total All Species",
+                                                            "Total Layer 1 - All Species",
+                                                            "Total Conifer",
+                                                            "Total Layer 1 - Conifers Only"), ordered = TRUE)
+
+All_output$DBH_class <- factor(All_output$DBH_class, levels = c("Layer 1 (45+ cm dbh)",
+                                                                "Layer 1 (35 - 45 cm dbh)",
+                                                                "Layer 1 (27.5 - 35 cm dbh)",
+                                                                "Layer 1 (22.5 - 27.5 cm dbh)",
+                                                                "Layer 1 (17.5 - 22.5 cm dbh)",
+                                                                "Layer 1 (12.5 - 17.5 cm dbh)",
+                                                                "Total Layer 1",
+                                                                "Layer 2 (7.5 - 12.49 cm dbh)",
+                                                                "Layer 3 (2.5 - 7.49 cm dbh)",
+                                                                "Layer 4 (<1.3 cm dbh)"), ordered = TRUE)
+
+All_output <- All_output[with(All_output, order(DBH_class, Species)),]
+All_output$Species <- as.character(All_output$Species)
+All_output$DBH_class <- as.character(All_output$DBH_class)
+
+# Extract layer totals
+
+allTemp <- tail(All_output, n = 1)
+All_output <- slice(All_output, 1:(n() - 1)) 
+
+allTemp$Species <- "TOTAL ALL LAYERS"
+allTemp$DBH_class <- "Layer Totals"
+
+
+USlayers <- c("Layer 2 (7.5 - 12.49 cm dbh)",
+              "Layer 3 (2.5 - 7.49 cm dbh)",
+              "Layer 4 (<1.3 cm dbh)")
+
+totalsL1 <- All_output[All_output$Species == "Total Layer 1 - All Species" & All_output$DBH_class == "Total Layer 1",]
+totalsUS <- All_output[All_output$Species == "Total All Species" & All_output$DBH_class %in% USlayers,]
+
+totals <- rbind.fill(totalsL1,totalsUS,allTemp)
+totals <- totals[grepl("^\\d+\\.?\\d*$", totals$SPH_exist), ]
+totals
+# Format and append totals
+
+totals$Species <- c("Total All Species Layer 1",
+                    "Total All Species Layer 2",
+                    "Total All Species Layer 3",
+                    "Total All Species Layer 4",
+                    "TOTAL ALL LAYERS")
+
+totals$DBH_class <- "Layer Totals"
+
+All_output <- rbind.fill(All_output,totals)
+All_output[is.na(All_output)] <- "-"
+
+#The code at this point will automatically write out the fused table as a csv, and example can be found here:
+# Z:\Admin\References\Methods\SNAP_to_BCWS_tablesexample_bsws_table_unformatted.csv
+write.csv(All_output,file = paste0(path,s_s_prefix,table_folder,TR,"_SST.csv"),row.names = F)
+
+#####################################################################################################################
+
+
+
+
+{
+  data.stand <- read.csv(paste0(path,s_s_prefix,table_folder,TR,"_SST.csv"), header = TRUE) #specify directory where you saved csv file
+  #update start & end row number for the output_table code block (starting at line 19) by viewing the data.stand, 
+  ###then run the following code###
+  data.stand.final <- dplyr::select(data.stand,-c(DBH_class,Cutting_spec))
+  colnames(data.stand.final) <- c("Species","Average Crown to Base Height (m)",
+                                  "Average Tree Height (m)", "Existing", "Cut",
+                                  "Leave", "Existing", "Cut",
+                                  "Leave","Existing", "Cut",
+                                  "Leave")
+  
+  #csv, not neccessary
+  #write.csv(data.stand.final, file = paste0(path,"/Outputs/",TR,"_SST.csv"), row.names = TRUE)
+  ########################start formatting the output table###########################################################################
+  #please note that the start and end row number for each layer need to be updated before running the code below
+  output_table <- kableExtra::kbl(data.stand.final, caption = "", align = "c")%>%
+    kableExtra::kable_paper(full_width = F)%>%
+    kableExtra::pack_rows("Layer 1 (>45 cm dbh)", 
+              which(data.stand$DBH_class=="Layer 1 (45+ cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (45+ cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (45+ cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 1 (35 - 45 cm dbh)",
+              which(data.stand$DBH_class=="Layer 1 (35 - 45 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (35 - 45 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (35 - 45 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 1 (27.5 - 35 cm dbh)",
+              which(data.stand$DBH_class=="Layer 1 (27.5 - 35 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (27.5 - 35 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (27.5 - 35 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 1 (22.5 - 27.5 cm dbh)", 
+              which(data.stand$DBH_class=="Layer 1 (22.5 - 27.5 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (22.5 - 27.5 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (22.5 - 27.5 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 1 (17.5 - 22.5 cm dbh)",
+              which(data.stand$DBH_class=="Layer 1 (17.5 - 22.5 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (17.5 - 22.5 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (17.5 - 22.5 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 1 (12.5 - 17.5 cm dbh)", 
+              which(data.stand$DBH_class=="Layer 1 (12.5 - 17.5 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 1 (12.5 - 17.5 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 1 (12.5 - 17.5 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Total Layer 1", 
+              which(data.stand$DBH_class=="Total Layer 1")[1],
+              (which(data.stand$DBH_class=="Total Layer 1")[(length(which(data.stand$DBH_class=="Total Layer 1")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 2 (7.5 - 12.49 cm dbh)", 
+              which(data.stand$DBH_class=="Layer 2 (7.5 - 12.49 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 2 (7.5 - 12.49 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 2 (7.5 - 12.49 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 3 (2.5 - 7.49 cm dbh)",
+              which(data.stand$DBH_class=="Layer 3 (2.5 - 7.49 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 3 (2.5 - 7.49 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 3 (2.5 - 7.49 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer 4 (<1.3 cm dbh)",
+              which(data.stand$DBH_class=="Layer 4 (<1.3 cm dbh)")[1],
+              (which(data.stand$DBH_class=="Layer 4 (<1.3 cm dbh)")[(length(which(data.stand$DBH_class=="Layer 4 (<1.3 cm dbh)")))]),
+              label_row_css = "background-color: #777; color: #fff;")%>%
+    kableExtra::pack_rows("Layer Totals",
+              which(data.stand$DBH_class=="Layer Totals")[1],
+              (which(data.stand$DBH_class=="Layer Totals")[(length(which(data.stand$DBH_class=="Layer Totals")))]),
+              label_row_css = "background-color: #777; color: #fff;") %>%
+    kableExtra::add_header_above(c("","","", "STEM PER HECTARE (SPH)"=3, "VOLUME (m3/ha)"=3, "BASAL AREA (m2/ha)"=3))%>%
+    kableExtra::add_header_above(c("STAND AND STOCK TABLE "=12),
+                     align = "left")
+ 
+  #html
+  kableExtra::save_kable(output_table,file=paste0(path,s_s_prefix,table_folder,TR,"_SST.html"))
+
+ 
+}
+ #Export to Excel
+# Initialize a list to store the formatted table
+formatted_table <- list()
+
+# Layer 1 (>45 cm dbh)
+formatted_table[[1]] <- data.frame(
+  Species = "Layer 1 (>45 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[2]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)"), ]
+
+# Layer 1 (35 - 45 cm dbh)
+formatted_table[[3]] <- data.frame(
+  Species = "Layer 1 (35 - 45 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+ Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[4]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)"), ]
+
+# Layer 1 (27.5 - 35 cm dbh)
+formatted_table[[5]] <- data.frame(
+  Species = "Layer 1 (27.5 - 35 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[6]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)"), ]
+
+# Layer 1 (22.5 - 27.5 cm dbh)
+formatted_table[[7]] <- data.frame(
+  Species = "Layer 1 (22.5 - 27.5 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[8]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)"), ]
+
+# Layer 1 (17.5 - 22.5 cm dbh)
+formatted_table[[9]] <- data.frame(
+  Species = "Layer 1 (17.5 - 22.5 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[10]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)"), ]
+
+# Layer 1 (12.5 - 17.5 cm dbh)
+formatted_table[[11]] <- data.frame(
+  Species = "Layer 1 (12.5 - 17.5 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[12]] <- data.stand.final[which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)"), ]
+
+# Total Layer 1
+formatted_table[[13]] <- data.frame(
+  Species = "Total Layer 1", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[14]] <- data.stand.final[which(data.stand$DBH_class == "Total Layer 1"), ]
+
+# Layer 2 (7.5 - 12.49 cm dbh)
+formatted_table[[15]] <- data.frame(
+  Species = "Layer 2 (7.5 - 12.49 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[16]] <- data.stand.final[which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)"), ]
+
+# Layer 3 (2.5 - 7.49 cm dbh)
+formatted_table[[17]] <- data.frame(
+  Species = "Layer 3 (2.5 - 7.49 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[18]] <- data.stand.final[which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)"), ]
+
+# Layer 4 (<1.3 cm dbh)
+formatted_table[[19]] <- data.frame(
+  Species = "Layer 4 (<1.3 cm dbh)", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[20]] <- data.stand.final[which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)"), ]
+
+# Layer Totals
+formatted_table[[21]] <- data.frame(
+  Species = "Layer Totals", `Average Crown to Base Height (m)` = NA, `Average Tree Height (m)` = NA,
+  Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA, Existing = NA, Cut = NA, Leave = NA,check.names = FALSE
+)
+formatted_table[[22]] <- data.stand.final[which(data.stand$DBH_class == "Layer Totals"), ]
+
+# Combine all parts into a single data frame
+final_output <- do.call(rbind, formatted_table)
+
+# Create a new Excel workbook
+wb <- openxlsx::createWorkbook()
+
+# Add a worksheet to the workbook
+openxlsx::addWorksheet(wb, "Stand and Stock Table")
+
+# Write the final data frame to the worksheet
+  openxlsx::writeData(wb, "Stand and Stock Table", final_output,startRow = 2)
+library(openxlsx)
+# Merge cells and add headers above the microheaders
+  mergeCells(wb, "Stand and Stock Table", cols = 1:3, rows = 1)
+  mergeCells(wb, "Stand and Stock Table", cols = 4:6, rows = 1)
+  mergeCells(wb, "Stand and Stock Table", cols = 7:9, rows = 1)
+  mergeCells(wb, "Stand and Stock Table", cols = 10:12, rows = 1)
+
+# Add the text for the headers
+  writeData(wb, "Stand and Stock Table", "Stand and Stock Table", startCol = 1, startRow = 1)
+  writeData(wb, "Stand and Stock Table", "STEM PER HECTARE (SPH)", startCol = 4, startRow = 1)
+  writeData(wb, "Stand and Stock Table", "VOLUME (m3/ha)", startCol = 7, startRow = 1)
+  writeData(wb, "Stand and Stock Table", "BASAL AREA (m2/ha)", startCol = 10, startRow = 1)
+
+# Format the headers (bold, size 14)
+  headerStyle <- createStyle(fontSize = 14, textDecoration = "bold", halign = "center")
+  addStyle(wb, "Stand and Stock Table", headerStyle, rows = 1, cols = 1:3, gridExpand = TRUE)
+  addStyle(wb, "Stand and Stock Table", headerStyle, rows = 1, cols = 4:6, gridExpand = TRUE)
+  addStyle(wb, "Stand and Stock Table", headerStyle, rows = 1, cols = 7:9, gridExpand = TRUE)
+  addStyle(wb, "Stand and Stock Table", headerStyle, rows = 1, cols = 10:12, gridExpand = TRUE)
+
+# Add bold style for the subheaders (row 2)
+  subheaderStyle <- createStyle(textDecoration = "bold", halign = "center",wrapText = TRUE, valign = "center")
+  addStyle(wb, "Stand and Stock Table", subheaderStyle, rows = 2, cols = 1:ncol(final_output), gridExpand = TRUE)
+
+# Center-align all numeric columns (excluding the first column)
+numericColumnStyle <- createStyle(halign = "center")
+  # Apply center alignment to all rows starting from row 3 (where data begins), from column 2 to the last column
+  addStyle(wb, "Stand and Stock Table", numericColumnStyle, rows = 3:(nrow(final_output) + 2), cols = 2:ncol(final_output), gridExpand = TRUE)
+# Define the rows that need to be bolded in the Species column
+bold_rows <- c("Layer 1 (>45 cm dbh)", "Layer 1 (35 - 45 cm dbh)", "Layer 1 (27.5 - 35 cm dbh)",
+               "Layer 1 (22.5 - 27.5 cm dbh)", "Layer 1 (17.5 - 22.5 cm dbh)", "Layer 1 (12.5 - 17.5 cm dbh)",
+               "Total Layer 1", "Layer 2 (7.5 - 12.49 cm dbh)", "Layer 3 (2.5 - 7.49 cm dbh)", 
+               "Layer 4 (<1.3 cm dbh)", "Layer Totals", "TOTAL ALL LAYERS")
+
+# Create a bold style for the specific rows in the Species column
+boldStyle <- createStyle(textDecoration = "bold")
+
+# Loop through the final_output data frame and apply the bold style to the matching rows in the Species column
+for (x in 1:nrow(final_output)) {
+  if (final_output$Species[x] %in% bold_rows) {
+    # Apply the bold style to the Species column for the matching rows (column 1)
+    addStyle(wb, "Stand and Stock Table", boldStyle, rows = x + 2, cols = 1, gridExpand = TRUE)
+  }
+}
+# Save the workbook to an Excel file
+saveWorkbook(wb, paste0(path,"/Outputs/",TR,"_SST.xlsx"), overwrite = TRUE)
+
+}
+
+####################################################End##################################################################################
+```
+
+
+  6.2 Run Code below if you have NO OVERSTORY: But check results thoroughly: either adjust code to loop over treatments or run it specifically for the treatment unit number without overstory
+
+```{r}
+# Number of unique stratum
+stratas <- unique(Snap_EX$Stratum)
+
+# Iterate over treatments
+#for(i in 1:stratas){
+
+#Set Strata you are working on:-------------------------------
+i<-2
+#:----------------------------------------------------------------
+
+  TR <- stratas[i]
+  table_folder <- paste0(TR, "_tables/")
+  
+  # Read CSV files
+  cuttingSpecs <- read.csv(file = paste0(path, s_s_prefix, table_folder, "cuttingSpecs.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  OS_SPH <- read.csv(file = paste0(path, s_s_prefix, table_folder, "OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  OS_BA <- read.csv(file = paste0(path, s_s_prefix, table_folder, "OS_BA.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  OS_Vol <- read.csv(file = paste0(path, s_s_prefix, table_folder, "OS_Vol.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  OS_Ht_CBH <- read.csv(file = paste0(path, s_s_prefix, table_folder, "OS_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  US_SPH <- read.csv(file = paste0(path, s_s_prefix, table_folder, "US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+  US_Ht_CBH <- read.csv(file = paste0(path, s_s_prefix, table_folder, "US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+#
+coniferList <- c("Ba","Bl", "Bg","Cw", "Fd", "Hw","T","Pl", "Sx" , "Lw", "Lt")
+nonConiferList <- c("Act","Ac","At","Ep","DP", "DU","Dead","DP")
+
+  # Remove columns that start with NA
+  US_SPH <- US_SPH[, !grepl("^NA", names(US_SPH))]
+  
+  # Check if there is any overstory data
+  has_overstory <- sum(OS_SPH[2]) > 0
+
+  if(has_overstory){
+    # 1. Overstorey
+    
+    # Height and CBH
+    OS_Ht_CBH_melt <- melt(OS_Ht_CBH, id = "DBH.Class")
+    OS_Ht_CBH_melt$Species <- substr(OS_Ht_CBH_melt$variable, start = 1, stop = 2)
+    
+    OS_Ht <- OS_Ht_CBH_melt[grep(pattern = "Ht", OS_Ht_CBH_melt$variable, fixed = TRUE), ]
+    names(OS_Ht)[names(OS_Ht) == "value"] <- "Mean_Height"
+    OS_Ht <- subset(OS_Ht, select = -c(variable))
+    
+    OS_CBH <- OS_Ht_CBH_melt[grep(pattern = "CBH", OS_Ht_CBH_melt$variable, fixed = TRUE), ]
+    names(OS_CBH)[names(OS_CBH) == "value"] <- "Mean_CBH"
+    OS_CBH <- subset(OS_CBH, select = -c(variable))
+    
+    OS_output <- merge(OS_CBH, OS_Ht, all = TRUE)
+    
+    # Species per hectare
+    OS_SPH_melt <- melt(OS_SPH, id = "DBH.Class")
+    setnames(OS_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
+    
+    OS_output <- merge(OS_output, OS_SPH_melt, by = c("Species", "DBH.Class"), all = TRUE)
+    
+    # Basal area
+    OS_BA_melt <- melt(OS_BA, id = "DBH.Class")
+    setnames(OS_BA_melt, old = c("variable", "value"), new = c("Species", "BA"))
+    
+    OS_output <- merge(OS_output, OS_BA_melt, by = c("Species", "DBH.Class"), all = TRUE)
+    
+    # Volume
+    OS_Vol_melt <- melt(OS_Vol, id = "DBH.Class")
+    setnames(OS_Vol_melt, old = c("variable", "value"), new = c("Species", "Volume"))
+    
+    OS_output <- merge(OS_output, OS_Vol_melt, by = c("Species", "DBH.Class"), all = TRUE)
+    
+    # Rename DBH class
+    setnames(OS_output, old = c("DBH.Class"), new = c("DBH_class"))
+    
+    # Replace DBH class names with layer descriptions
+    OS_output[OS_output == "12.5 - 17.5"] <- "Layer 1 (12.5 - 17.5 cm dbh)"
+    OS_output[OS_output == "17.5 - 22.5"] <- "Layer 1 (17.5 - 22.5 cm dbh)"
+    OS_output[OS_output == "22.5 - 27.5"] <- "Layer 1 (22.5 - 27.5 cm dbh)"
+    OS_output[OS_output == "27.5 - 35"] <- "Layer 1 (27.5 - 35 cm dbh)"
+    OS_output[OS_output == "35 - 45"] <- "Layer 1 (35 - 45 cm dbh)"
+    OS_output[OS_output == "45+"] <- "Layer 1 (45+ cm dbh)"
+  } else {
+    OS_output <- NULL
+  }
+
+  # 2. Understorey
+  # Height and CBH
+  US_Ht_CBH_melt <- melt(US_Ht_CBH, id = "Layer")
+  US_Ht_CBH_melt$Species <- substr(US_Ht_CBH_melt$variable, start = 1, stop = 2)
+  US_Ht_CBH_melt <- US_Ht_CBH_melt[US_Ht_CBH_melt$Species != "De", ]
+
+  US_Ht <- US_Ht_CBH_melt[grep(pattern = "Ht", US_Ht_CBH_melt$variable, fixed = TRUE), ]
+  names(US_Ht)[names(US_Ht) == "value"] <- "Mean_Height"
+  US_Ht <- subset(US_Ht, select = -c(variable))
+  
+  US_CBH <- US_Ht_CBH_melt[grep(pattern = "CBH", US_Ht_CBH_melt$variable, fixed = TRUE), ]
+  names(US_CBH)[names(US_CBH) == "value"] <- "Mean_CBH"
+  US_CBH <- subset(US_CBH, select = -c(variable))
+  
+  US_output <- merge(US_CBH, US_Ht, all = TRUE)
+  
+  # Species per hectare
+  US_SPH_melt <- melt(US_SPH, id = "Layer")
+  setnames(US_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
+  
+  US_output <- merge(US_output, US_SPH_melt, by = c("Species", "Layer"), all = TRUE)
+  
+  # Add placeholder columns for Basal area and Volume
+  US_output$BA <- NA
+  US_output$Volume <- NA
+  
+  # Rename Layer to DBH class
+  setnames(US_output, old = c("Layer"), new = c("DBH_class"))
+  US_output[US_output == "Layer 1 (12.5-17.5)"] <- "Layer 1 (12.5 - 17.5 cm dbh)"
+  
+  # Joining overstorey and understorey
+  if (!is.null(OS_output)) {
+    All_output <- rbind(OS_output, US_output)
+  } else {
+    All_output <- US_output
+  }
+  
+  All_output <- All_output[!duplicated(All_output), ]
+  # Remove totals for species across all diameter classes
+  All_output <- All_output[which(All_output$DBH_class != "Total"), ]
+ 
+  # Joining the cutting specs
+  cuttingSpecs <- subset(cuttingSpecs, select = -c(Stand.Layer))
+  cuttingSpecs_melt <- melt(cuttingSpecs, id = "DBH.Class")
+  setnames(cuttingSpecs_melt, old = c("DBH.Class", "variable", "value"), new = c("DBH_class", "Species", "Cutting_Spec"))
+
+  # Replace DBH class names in cutting specs
+  cuttingSpecs_melt[cuttingSpecs_melt == "0-1.5"] <- "Layer 4 (<1.3m)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "1.5-7.5"] <- "Layer 3 (2.5-7.49)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "7.5-12.5"] <- "Layer 2 (7.5-12.49)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "12.5-17.5"] <- "Layer 1 (12.5 - 17.5 cm dbh)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "17.5-22.5"] <- "Layer 1 (17.5 - 22.5 cm dbh)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "22.5-27.5"] <- "Layer 1 (22.5 - 27.5 cm dbh)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "27.5-35"] <- "Layer 1 (27.5 - 35 cm dbh)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "35-45"] <- "Layer 1 (35 - 45 cm dbh)"
+  cuttingSpecs_melt[cuttingSpecs_melt == "45+"] <- "Layer 1 (45+ cm dbh)"
+  
+  All_output <- merge(All_output, cuttingSpecs_melt, by = c("Species", "DBH_class"), all.x = TRUE)
+  All_output <- All_output[All_output$Species != "Dead", ]
+
+  # Calculating cut and leave
+  All_output <- All_output %>%
+    mutate(SPH_cut = round(SPH * Cutting_Spec / 100, digits = 0)) %>%
+    mutate(SPH_leave = round(SPH * (100 - Cutting_Spec) / 100, digits = 0)) %>%
+    mutate(Volume_cut = round(Volume * Cutting_Spec / 100, digits = 0)) %>%
+    mutate(Volume_leave = round(Volume * (100 - Cutting_Spec) / 100, digits = 0)) %>%
+    mutate(BA_cut = round(BA * Cutting_Spec / 100, digits = 0)) %>%
+    mutate(BA_leave = round(BA * (100 - Cutting_Spec) / 100, digits = 0))
+  
+  All_output <- All_output[!is.na(All_output$SPH), ]
+  All_output <- All_output[All_output$SPH != 0, ]
+  All_output <- All_output[!All_output$Species == "Total", ]
+  All_output[is.na(All_output)] <- 0
+
+  All_output <- All_output %>%
+    filter(!is.na(Species))
+
+  # Set height values for dead trees
+  All_output[which(All_output$Species == "DP" & All_output$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)"), c("Mean_Height")] <- 8
+  All_output[which(All_output$Species == "DU" & All_output$DBH_class == "Layer 3 (2.5-7.49)"), c("Mean_Height")] <- 2
+  All_output[which(All_output$Species == "DU" & All_output$DBH_class == "Layer 4 (<1.3m)"), c("Mean_Height")] <- 1
+`
+  # Calculating Totals
+  All_output <- mutate(All_output, Decay = ifelse(All_output$Species == "DP" | All_output$Species == "DU", "Dead", "Live"))
+  All_output <- mutate(All_output, Conifer = ifelse(All_output$Species %in% coniferList, "Coniferous", "Other"))
+  
+  All_output$Mean_CBH[All_output$Conifer != "Coniferous"] <- NA
+  All_output$Mean_CBH <- as.integer(All_output$Mean_CBH)
+  All_output$Mean_Height <- as.integer(All_output$Mean_Height)
+  
+  All_output <- mutate(All_output, CBH_forWtMean = All_output$Mean_CBH * All_output$SPH)
+  All_output <- mutate(All_output, Ht_forWtMean = All_output$Mean_Height * All_output$SPH)
+
+  # Conifer
+  coniferTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave, Volume, Volume_cut, Volume_leave,
+                                 BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Conifer + DBH_class,
+                           data = All_output, FUN = sum, na.action = na.pass)
+  
+  coniferTemp <- coniferTemp %>%
+    filter(Conifer == "Coniferous") %>%
+    mutate(Species = "Total Conifer") %>%
+    mutate(Mean_CBH = round(CBH_forWtMean / SPH, digits = 1)) %>%
+    mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+    dplyr::select(-Conifer, -CBH_forWtMean, -Ht_forWtMean)
+  
+  existingLayers <- c("Layer 4 (<1.3m)",
+                      "Layer 3 (2.5-7.49)",
+                      "Layer 2 (7.5-12.49)",
+                      "Layer 1 (12.5 - 17.5 cm dbh)",
+                      "Layer 1 (17.5 - 22.5 cm dbh)",
+                      "Layer 1 (22.5 - 27.5 cm dbh)",
+                      "Layer 1 (27.5 - 35 cm dbh)",
+                      "Layer 1 (35 - 45 cm dbh)",
+                      "Layer 1 (45+ cm dbh)")
+  
+  coniferLayers <- unique(coniferTemp$DBH_class)
+  missingLayers <- existingLayers[!(existingLayers %in% coniferLayers)]
+  
+  if (length(missingLayers) > 0) {
+    coniferTempFill <- data.frame(Species = "Total Conifer", DBH_class = missingLayers,
+                                  SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                                  Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                                  BA = 0, BA_cut = 0, BA_leave = 0,
+                                  Mean_CBH = NA, Mean_Height = NA)
+    
+    coniferTemp <- rbind.fill(coniferTemp, coniferTempFill)
+  }
+  
+  # All Live
+  liveTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                              Volume, Volume_cut, Volume_leave,
+                              BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Decay + DBH_class,
+                        data = All_output, FUN = sum, na.action = na.pass)
+  
+  liveTemp <- liveTemp %>%
+    filter(Decay == "Live") %>%
+    mutate(Species = "Total Live") %>%
+    mutate(Mean_CBH = round(CBH_forWtMean / SPH, digits = 1)) %>%
+    mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+    dplyr::select(-Decay, -CBH_forWtMean, -Ht_forWtMean)
+  
+  liveLayers <- unique(liveTemp$DBH_class)
+  missingLayers <- existingLayers[!(existingLayers %in% liveLayers)]
+  
+  if (length(missingLayers) > 0) {
+    liveTempFill <- data.frame(Species = "Total Live", DBH_class = missingLayers,
+                               SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                               Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                               BA = 0, BA_cut = 0, BA_leave = 0,
+                               Mean_CBH = NA, Mean_Height = NA)
+    
+    liveTemp <- rbind.fill(liveTemp, liveTempFill)
+  }
+  
+  # Everything per layer
+  allPerLayerTemp <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                                     Volume, Volume_cut, Volume_leave,
+                                     BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ DBH_class,
+                               data = All_output, FUN = sum, na.action = na.pass)
+  
+  allPerLayerTemp <- allPerLayerTemp %>%
+    mutate(Species = "Total All Species") %>%
+    mutate(Mean_CBH = round(CBH_forWtMean / SPH, digits = 1)) %>%
+    mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+    dplyr::select(-CBH_forWtMean, -Ht_forWtMean)
+  
+  allLayers <- unique(allPerLayerTemp$DBH_class)
+  missingLayers <- existingLayers[!(existingLayers %in% allLayers)]
+  
+  if (length(missingLayers) > 0) {
+    allPerLayerTempFill <- data.frame(Species = "Total All Species", DBH_class = missingLayers,
+                                      SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                                      Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                                      BA = 0, BA_cut = 0, BA_leave = 0,
+                                      Mean_CBH = NA, Mean_Height = NA)
+    
+    allPerLayerTemp <- rbind.fill(allPerLayerTemp, allPerLayerTempFill)
+  }
+  
+  # Everything per layer
+  allTemp <- data.frame(Species = "Total All Layers", DBH_class = NA, SPH = sum(All_output$SPH, na.rm = T), SPH_cut = sum(All_output$SPH_cut, na.rm = T), SPH_leave = sum(All_output$SPH_leave, na.rm = T), Volume = sum(All_output$Volume, na.rm = T), Volume_cut = sum(All_output$Volume_cut, na.rm = T), Volume_leave = sum(All_output$Volume_leave, na.rm = T), BA = sum(All_output$BA, na.rm = T), BA_cut = sum(All_output$BA_cut, na.rm = T), BA_leave = sum(All_output$BA_leave, na.rm = T), Mean_CBH = NA, Ht_forWtMean = sum(All_output$Ht_forWtMean, na.rm = T))
+  
+  allTemp <- allTemp %>%
+    mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+    dplyr::select(-c("Ht_forWtMean"))
+
+
+  # Layer-1 specific
+  if (!is.null(OS_output)) {
+    L1temp <- All_output[grep(pattern = "Layer 1", All_output$DBH_class, fixed = TRUE), ]
+   
+    # Conifers
+    L1conifer <- aggregate(cbind(SPH, SPH_cut, SPH_leave,
+                                 Volume, Volume_cut, Volume_leave,
+                                 BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean) ~ Conifer,
+                           data = L1temp, FUN = sum, na.rm = TRUE, na.action = na.pass)
+    
+    L1conifer <- L1conifer %>%
+      filter(Conifer == "Coniferous") %>%
+      mutate(Species = "Total Layer 1 - Conifers Only") %>%
+      mutate(DBH_class = "Total Layer 1") %>%
+      mutate(Mean_CBH = round(CBH_forWtMean / SPH, digits = 1)) %>%
+      mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+      dplyr::select(-c("Conifer", "CBH_forWtMean", "Ht_forWtMean"))
+    
+    # All Species
+    L1all <- L1temp %>%
+      dplyr::select(SPH, SPH_cut, SPH_leave,
+                    Volume, Volume_cut, Volume_leave,
+                    BA, BA_cut, BA_leave, CBH_forWtMean, Ht_forWtMean)
+    
+    L1all <- as.data.frame(t(colSums(L1all, na.rm = TRUE)))
+    
+    L1all <- L1all %>%
+      mutate(Species = "Total Layer 1 - All Species") %>%
+      mutate(DBH_class = "Total Layer 1") %>%
+      mutate(Mean_CBH = round(CBH_forWtMean / SPH, digits = 1)) %>%
+      mutate(Mean_Height = round(Ht_forWtMean / SPH, digits = 1)) %>%
+      dplyr::select(-c("CBH_forWtMean", "Ht_forWtMean"))
+    
+    # Dead Potential
+    existingDPlayers <- All_output$DBH_class[All_output$Species == "DP"]
+    
+    allDPlayers <- c("Layer 2 (7.5-12.49)",
+                     "Layer 1 (12.5 - 17.5 cm dbh)",
+                     "Layer 1 (17.5 - 22.5 cm dbh)",
+                     "Layer 1 (22.5 - 27.5 cm dbh)",
+                     "Layer 1 (27.5 - 35 cm dbh)",
+                     "Layer 1 (35 - 45 cm dbh)",
+                     "Layer 1 (45+ cm dbh)")
+    
+    missingDPlayers <- allDPlayers[!(allDPlayers %in% existingDPlayers)]
+    
+    DPtemp <- data.frame(Species = "DP", DBH_class = missingDPlayers,
+                         SPH = 0, SPH_cut = 0, SPH_leave = 0,
+                         Volume = 0, Volume_cut = 0, Volume_leave = 0,
+                         BA = 0, BA_cut = 0, BA_leave = 0)
+    
+    # Put everything together...
+    All_output <- rbind.fill(All_output, coniferTemp, liveTemp, allPerLayerTemp, allTemp, L1conifer, L1all, DPtemp)
+  } else {
+    # No overstory, just add the understory and totals
+    All_output <- rbind.fill(All_output, coniferTemp, liveTemp, allPerLayerTemp, allTemp)
+  }
+  
+  # Reformatting
+  All_output <- All_output[, c("Species", "DBH_class", "Mean_CBH", "Mean_Height",
+                               "SPH", "SPH_cut", "SPH_leave",
+                               "Volume", "Volume_cut", "Volume_leave",
+                               "BA", "BA_cut", "BA_leave",
+                               "Cutting_Spec")]
+  
+  setnames(All_output, old = c("SPH", "Volume", "BA", "Cutting_Spec"), new = c("SPH_exist", "Volume_exist", "BA_exist", "Cutting_spec"))
+
+  All_output$Species[All_output$Species == "DP"] <- "Total Dead Potential"
+  All_output$DBH_class[All_output$DBH_class == "Layer 2 (7.5-12.49)"] <- "Layer 2 (7.5 - 12.49 cm dbh)"
+  All_output$DBH_class[All_output$DBH_class == "Layer 3 (2.5-7.49)"] <- "Layer 3 (2.5 - 7.49 cm dbh)"
+  All_output$DBH_class[All_output$DBH_class == "Layer 4 (<1.3m)"] <- "Layer 4 (<1.3 cm dbh)"
+  
+  All_output$Cutting_spec[is.na(All_output$Cutting_spec)] <- 0
+  
+  totallingLayers <- c("Total All Species",
+                       "Total Dead Potential",
+                       "Total Live",
+                       "Total Layer 1 - All Species")
+  
+  VolBA <- c("Volume_exist",
+             "Volume_cut",
+             "Volume_leave",
+             "BA_exist",
+             "BA_cut",
+             "BA_leave")
+  
+  USlayers <- c("Layer 2 (7.5 - 12.49 cm dbh)",
+                "Layer 3 (2.5 - 7.49 cm dbh)",
+                "Layer 4 (<1.3 cm dbh)")
+  
+  All_output$Mean_CBH[which(All_output$Species %in% totallingLayers)] <- "-"
+  All_output[which(All_output$DBH_class %in% USlayers), which(colnames(All_output) %in% VolBA)] <- "-"
+  All_output[is.na(All_output)] <- "-"
+  
+  All_output$Species <- factor(All_output$Species, levels = c(coniferList,
+                                                              nonConiferList[!nonConiferList == "DP"],
+                                                              "Total Dead Potential",
+                                                              "Total Live",
+                                                              "Total All Species",
+                                                              "Total Layer 1 - All Species",
+                                                              "Total Conifer",
+                                                              "Total Layer 1 - Conifers Only"), ordered = TRUE)
+  
+  All_output$DBH_class <- factor(All_output$DBH_class, levels = c("Layer 1 (45+ cm dbh)",
+                                                                  "Layer 1 (35 - 45 cm dbh)",
+                                                                  "Layer 1 (27.5 - 35 cm dbh)",
+                                                                  "Layer 1 (22.5 - 27.5 cm dbh)",
+                                                                  "Layer 1 (17.5 - 22.5 cm dbh)",
+                                                                  "Layer 1 (12.5 - 17.5 cm dbh)",
+                                                                  "Total Layer 1",
+                                                                  "Layer 2 (7.5 - 12.49 cm dbh)",
+                                                                  "Layer 3 (2.5 - 7.49 cm dbh)",
+                                                                  "Layer 4 (<1.3 cm dbh)"), ordered = TRUE)
+
+
+  All_output <- All_output[with(All_output, order(DBH_class, Species)), ]
+  All_output$Species <- as.character(All_output$Species)
+  All_output$DBH_class <- as.character(All_output$DBH_class)
+  
+  # Extract layer totals
+  allTemp <- tail(All_output, n = 1)
+  All_output <- slice(All_output, 1:(n() - 1))
+  
+  allTemp$Species <- "TOTAL ALL LAYERS"
+  allTemp$DBH_class <- "Layer Totals"
+  
+  USlayers <- c("Layer 2 (7.5 - 12.49 cm dbh)",
+                "Layer 3 (2.5 - 7.49 cm dbh)",
+                "Layer 4 (<1.3 cm dbh)")
+  
+  totalsL1 <- All_output[All_output$Species == "Total Layer 1 - All Species" & All_output$DBH_class == "Total Layer 1", ]
+  totalsUS <- All_output[All_output$Species == "Total All Species" & All_output$DBH_class %in% USlayers, ]
+  
+  totals <- rbind.fill(totalsL1, totalsUS, allTemp)
+  totals <- totals[grepl("^\\d+\\.?\\d*$", totals$SPH_exist), ]
+  
+
+  #modifying if no overstory
+  species_totals_labels<- c("Total Layer 1",
+    "Layer 2 (7.5 - 12.49 cm dbh)",
+    "Layer 3 (2.5 - 7.49 cm dbh)",
+    "Layer 4 (<1.3 cm dbh)",
+    "Layer Totals")
+
+
+# Check if all elements of species_totals_labels are in totals$DBH_class
+  if(all(species_totals_labels %in% totals$DBH_class)){
+  # Format and append totals
+  totals$Species <- c("Total All Species Layer 1",
+                      "Total All Species Layer 2",
+                      "Total All Species Layer 3",
+                      "Total All Species Layer 4",
+                      "TOTAL ALL LAYERS")
+} else {
+  layer_1df<- data.frame(Species="Total Layer 1 - All Species",DBH_class="Total Layer 1", Mean_CBH="-",Mean_Height="-",SPH_exist=0,SPH_cut=0,SPH_leave=0,Volume_exist=0,Volume_cut=0,Volume_leave=0,BA_exist=0,BA_cut=0,BA_leave=0,Cutting_spec=0)
+  totals<- rbind(layer_1df,totals)
+  totals$Species <- c("Total All Species Layer 1",
+                      "Total All Species Layer 2",
+                      "Total All Species Layer 3",
+                      "Total All Species Layer 4",
+                      "TOTAL ALL LAYERS")
+}
+  totals$DBH_class <- "Layer Totals"
+  All_output <- rbind.fill(All_output, totals)
+
+  # Write the fused table as a CSV
+  write.csv(All_output, file = paste0(path, s_s_prefix, table_folder, TR, "_SST.csv"), row.names = F)
+  
+  #####################################################################################################################
+
+    data.stand <- read.csv(paste0(path, s_s_prefix, table_folder, TR, "_SST.csv"), header = TRUE)
+    # Update start & end row number for the output_table code block (starting at line 19) by viewing the data.stand, 
+    value_exists <- any(data.stand$DBH_class == "Total Layer 1")
+    
+if(isTRUE(value_exists)){    
+  
+    ###then run the following code###
+    data.stand.final <- dplyr::select(data.stand, -c(DBH_class, Cutting_spec))
+    colnames(data.stand.final) <- c("Species", "Average Crown to Base Height (m)",
+                                    "Average Tree Height (m)", "Existing", "Cut",
+                                    "Leave", "Existing", "Cut",
+                                    "Leave", "Existing", "Cut",
+                                    "Leave")
+
+
+    ########################start formatting the output table###########################################################################
+    # Please note that the start and end row number for each layer need to be updated before running the code below
+    output_table <- kbl(data.stand.final, caption = "", align = "c") %>%
+      kable_paper(full_width = F) %>%
+      pack_rows("Layer 1 (>45 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (35 - 45 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (27.5 - 35 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (22.5 - 27.5 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (17.5 - 22.5 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (12.5 - 17.5 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Total Layer 1", 
+                which(data.stand$DBH_class == "Total Layer 1")[1],
+                (which(data.stand$DBH_class == "Total Layer 1")[(length(which(data.stand$DBH_class == "Total Layer 1")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 2 (7.5 - 12.49 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 3 (2.5 - 7.49 cm dbh)",
+                which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 4 (<1.3 cm dbh)",
+                which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer Totals",
+                which(data.stand$DBH_class == "Layer Totals")[1],
+                (which(data.stand$DBH_class == "Layer Totals")[(length(which(data.stand$DBH_class == "Layer Totals")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      add_header_above(c("","","", "STEM PER HECTARE (SPH)" = 3, "VOLUME (m3/ha)" = 3, "BASAL AREA (m2/ha)" = 3)) %>%
+      add_header_above(c("STAND AND STOCK TABLE " = 12),
+                       align = "left")
+    
+    save_kable(output_table, file = paste0(path, s_s_prefix, table_folder, TR, "_SST.html"))
+   }
+else{
+    ###then run the following code###
+    data.stand.final <- dplyr::select(data.stand, -c(DBH_class, Cutting_spec))
+    colnames(data.stand.final) <- c("Species", "Average Crown to Base Height (m)",
+                                    "Average Tree Height (m)", "Existing", "Cut",
+                                    "Leave", "Existing", "Cut",
+                                    "Leave", "Existing", "Cut",
+                                    "Leave")
+
+
+    ########################start formatting the output table###########################################################################
+    # Please note that the start and end row number for each layer need to be updated before running the code below
+    output_table <- kbl(data.stand.final, caption = "", align = "c") %>%
+      kable_paper(full_width = F) %>%
+      pack_rows("Layer 1 (>45 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (45+ cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (35 - 45 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (35 - 45 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (27.5 - 35 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (27.5 - 35 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (22.5 - 27.5 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (22.5 - 27.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (17.5 - 22.5 cm dbh)",
+                which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (17.5 - 22.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 1 (12.5 - 17.5 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 1 (12.5 - 17.5 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 2 (7.5 - 12.49 cm dbh)", 
+                which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 2 (7.5 - 12.49 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 3 (2.5 - 7.49 cm dbh)",
+                which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 3 (2.5 - 7.49 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer 4 (<1.3 cm dbh)",
+                which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")[1],
+                (which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")[(length(which(data.stand$DBH_class == "Layer 4 (<1.3 cm dbh)")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      pack_rows("Layer Totals",
+                which(data.stand$DBH_class == "Layer Totals")[1],
+                (which(data.stand$DBH_class == "Layer Totals")[(length(which(data.stand$DBH_class == "Layer Totals")))]),
+                label_row_css = "background-color: #777; color: #fff;") %>%
+      add_header_above(c("","","", "STEM PER HECTARE (SPH)" = 3, "VOLUME (m3/ha)" = 3, "BASAL AREA (m2/ha)" = 3)) %>%
+      add_header_above(c("STAND AND STOCK TABLE " = 12),
+                       align = "left")
+    
+    save_kable(output_table, file = paste0(path, s_s_prefix, table_folder, TR, "_SST.html"))
+    }
+
+#}
+
+```
