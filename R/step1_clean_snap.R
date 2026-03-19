@@ -1,26 +1,45 @@
 step1 <- function(cfg, root){
   cat("Running Step 1: Clean SNAP\n")
 
-  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0 || is.na(a)) b else a
-
-  out_dir <- file.path(root, cfg$outputs$step1)
-  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-  snap_dir <- file.path(root, "data", "raw", "SNAP")
-  if (!dir.exists(snap_dir)) stop("Missing SNAP directory: ", snap_dir)
-
-  find_project_prefix <- function(){
-    os_files <- list.files(snap_dir, pattern = "_OS\\.csv$", full.names = FALSE)
-    if (length(os_files) == 0) stop("No *_OS.csv files found in ", snap_dir)
-    sub("_OS\\.csv$", "", os_files[[1]])
+  `%||%` <- function(a, b) {
+    if (is.null(a) || length(a) == 0) return(b)
+    if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
+    a
+  }
+  project_name <- cfg$project_name %||% ""
+  resolve_data_path <- function(path_cfg) {
+    path_cfg <- path_cfg %||% ""
+    if (!nzchar(path_cfg)) return("")
+    file.path(cfg$runtime$data_root, path_cfg)
   }
 
+  out_dir <- file.path(cfg$runtime$data_root, cfg$outputs$step1)
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  snap_dir <- file.path(cfg$runtime$raw_dir, "SNAP")
+  if (!dir.exists(snap_dir)) stop("Missing SNAP directory: ", snap_dir)
+
+  project_file <- function(suffix) file.path(snap_dir, paste0(project_name, suffix, ".csv"))
+
+  validate_required_project_files <- function() {
+    required <- c("_OS", "_US", "_EXTRA", "_FUELS")
+    missing <- required[!vapply(required, function(suffix) file.exists(project_file(suffix)), logical(1))]
+    if (length(missing) > 0) {
+      stop(
+        "Missing project-specific SNAP files for project_name=", project_name,
+        ". Expected: ",
+        paste(vapply(missing, function(suffix) project_file(suffix), character(1)), collapse = ", ")
+      )
+    }
+  }
+
+  validate_required_project_files()
+
   read_snap <- function(path_cfg, suffix){
-    from_cfg <- if (!is.null(path_cfg) && nzchar(path_cfg)) file.path(root, path_cfg) else ""
+    from_cfg <- resolve_data_path(path_cfg)
     if (nzchar(from_cfg) && file.exists(from_cfg)) return(read.csv(from_cfg, stringsAsFactors = FALSE))
 
-    prefix <- find_project_prefix()
-    auto_path <- file.path(snap_dir, paste0(prefix, suffix, ".csv"))
+    auto_path <- project_file(suffix)
     if (!file.exists(auto_path)) stop("Missing SNAP file: ", auto_path)
     read.csv(auto_path, stringsAsFactors = FALSE)
   }
@@ -89,6 +108,8 @@ step1 <- function(cfg, root){
   write.csv(Snap_fuels, file.path(out_dir, "clean_snap_fuels.csv"), row.names = FALSE)
 
   summary <- list(
+    project_name = project_name,
+    project_root = cfg$runtime$project_root,
     os_rows = nrow(Snap_OS),
     us_rows = nrow(Snap_US),
     extra_rows = nrow(Snap_EX),

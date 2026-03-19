@@ -27,11 +27,16 @@ config/config.json
 # Generated pipeline outputs
 data/intermediate/
 data/outputs/
+projects/*/data/intermediate/
+projects/*/data/outputs/
 
 # Large or machine-specific raw data (keep folder structure only)
 data/raw/
+projects/*/data/raw/
 !data/raw/.gitkeep
 !data/raw/README.md
+!projects/.gitkeep
+!projects/README.md
 
 # Logs/temp
 *.log

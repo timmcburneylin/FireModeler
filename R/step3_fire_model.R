@@ -1,8 +1,13 @@
 step3 <- function(cfg, root){
   cat("Running Step 3: Fire Modeling\n")
+  `%||%` <- function(a, b) {
+    if (is.null(a) || length(a) == 0) return(b)
+    if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
+    a
+  }
 
-  in_dir <- file.path(root, cfg$outputs$step2)
-  out_dir <- file.path(root, cfg$outputs$step3)
+  in_dir <- file.path(cfg$runtime$data_root, cfg$outputs$step2)
+  out_dir <- file.path(cfg$runtime$data_root, cfg$outputs$step3)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
   in_rds <- file.path(in_dir, "fuelcalc_inputs.rds")
@@ -19,7 +24,7 @@ step3 <- function(cfg, root){
   }
   strata <- strata[!is.na(strata) & nzchar(strata)]
 
-  fuelcalc_root <- file.path(root, "data", "raw", "FuelCalcBC")
+  fuelcalc_root <- file.path(cfg$runtime$raw_dir, "FuelCalcBC")
   plot_root <- file.path(fuelcalc_root, "Outputs", "Plot Files")
 
   expected_dirs <- lapply(strata, function(st) {
@@ -221,31 +226,28 @@ step3 <- function(cfg, root){
   write.csv(all_slash_summary, file.path(slash_out_dir, "All_Treatments_SlashResiduals.csv"), row.names = FALSE)
 
   # Weather staging bridge (legacy inputs -> canonical files for downstream blocks).
-  weather_root <- file.path(root, "data", "raw", "Weather")
+  weather_root <- file.path(cfg$runtime$raw_dir, "Weather")
   weather_out_dir <- file.path(out_dir, "WeatherStage")
   dir.create(weather_out_dir, recursive = TRUE, showWarnings = FALSE)
 
-  snap_dir <- file.path(root, "data", "raw", "SNAP")
-  snap_os <- list.files(snap_dir, pattern = "_OS\\.csv$", full.names = FALSE)
-  daily_fwi_candidates <- list.files(weather_root, pattern = "_Daily_FWI_AllYear\\.csv$", full.names = FALSE)
-  project_id <- if (length(daily_fwi_candidates) > 0) {
-    sub("_Daily_FWI_AllYear\\.csv$", "", daily_fwi_candidates[[1]])
-  } else if (length(snap_os) > 0) {
-    # Prefer legacy TR_ project prefix when multiple SNAP prefixes are present.
-    snap_prefixes <- sub("_OS\\.csv$", "", snap_os)
-    tr_hit <- snap_prefixes[grepl("^TR_", snap_prefixes)]
-    if (length(tr_hit) > 0) tr_hit[[1]] else snap_prefixes[[1]]
-  } else {
-    "TR_LionsBurn"
+  configured_project_name <- cfg$project_name %||% ""
+  project_name <- configured_project_name
+  if (!nzchar(project_name)) {
+    stop("config project_name is required for Step 3 weather staging")
   }
+  resolve_data_path <- function(path_cfg) {
+    path_cfg <- path_cfg %||% ""
+    if (!nzchar(path_cfg)) return("")
+    file.path(cfg$runtime$data_root, path_cfg)
+  }
+  configured_weather_path <- resolve_data_path(cfg$paths$weather_csv %||% "")
 
   to_num <- function(x) suppressWarnings(as.numeric(trimws(as.character(x))))
   as_date_chr <- function(x) format(as.Date(x), "%Y-%m-%d")
 
   daily_source_candidates <- c(
-    file.path(weather_root, paste0(project_id, "_Daily_FWI_AllYear.csv")),
-    file.path(weather_root, "TR_LionsBurn_Daily_FWI_AllYear.csv"),
-    file.path(weather_root, "Daily_Weather_AllYear.csv")
+    configured_weather_path,
+    file.path(weather_root, paste0(project_name, "_Daily_FWI_AllYear.csv"))
   )
   daily_source <- daily_source_candidates[file.exists(daily_source_candidates)][1]
 
@@ -282,7 +284,7 @@ step3 <- function(cfg, root){
   }
 
   weather_info <- list(
-    project_id = project_id,
+    project_name = project_name,
     daily_source = if (length(daily_source) > 0) daily_source else NA_character_,
     hourly_source = if (length(hourly_source) > 0) hourly_source else NA_character_,
     canonical_daily = NA_character_,
@@ -315,7 +317,11 @@ step3 <- function(cfg, root){
       write.csv(summer, weather_info$summer_daily, row.names = FALSE)
     }
   } else {
-    weather_info$issues <- c(weather_info$issues, "Missing daily weather FWI source.")
+    stop(
+      "Missing daily weather FWI source for project_name=", project_name,
+      ". Expected one of: ",
+      paste(daily_source_candidates, collapse = ", ")
+    )
   }
 
   if (length(hourly_source) > 0 && !is.na(hourly_source) && file.exists(hourly_source)) {
@@ -347,7 +353,7 @@ step3 <- function(cfg, root){
   jsonlite::write_json(weather_info, path = file.path(weather_out_dir, "weather_stage_summary.json"), auto_unbox = TRUE, pretty = TRUE)
 
   # Fire behavior input staging: prefer legacy pre/post files, fallback to generated summary.
-  fire_raw_inputs <- file.path(root, "data", "raw", "FireBehavior", "Inputs")
+  fire_raw_inputs <- file.path(cfg$runtime$raw_dir, "FireBehavior", "Inputs")
   fire_stage_dir <- file.path(out_dir, "FireBehaviorStage")
   dir.create(fire_stage_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -468,7 +474,7 @@ step3 <- function(cfg, root){
   fire_run_dir <- file.path(out_dir, "FireBehaviorRun")
   dir.create(fire_run_dir, recursive = TRUE, showWarnings = FALSE)
 
-  fb_outputs_root <- file.path(root, "data", "raw", "FireBehavior", "Outputs")
+  fb_outputs_root <- file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs")
   pre_rds <- file.path(fb_outputs_root, "Results_PreTreatment.rds")
   post_rds <- file.path(fb_outputs_root, "Results_PostTreatment.rds")
   fullburn_csv <- file.path(fb_outputs_root, "FullBurnConditions_Data.csv")

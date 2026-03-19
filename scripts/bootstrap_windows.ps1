@@ -17,4 +17,4 @@ if (Get-Command Rscript -ErrorAction SilentlyContinue) {
   Write-Warning "Rscript not found; skipping renv restore."
 }
 
-Write-Host "Done. Copy your data into data/raw/ before running pipeline."
+Write-Host "Done. Copy your data into projects/<project_name>/data/raw/ before running pipeline."

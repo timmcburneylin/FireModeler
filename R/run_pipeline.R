@@ -1,6 +1,7 @@
 library(jsonlite)
 
 cat("FireModel pipeline starting...\n")
+args <- commandArgs(trailingOnly = TRUE)
 
 root <- normalizePath(getwd())
 config_path <- file.path(root, "config", "config.json")
@@ -15,11 +16,77 @@ if (!file.exists(config_path) && file.exists(config_example_path)) {
   stop("Missing config/config.json and config/config.example.json")
 }
 
+`%||%` <- function(a, b) {
+  if (is.null(a) || length(a) == 0) return(b)
+  if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
+  a
+}
+sanitize_data_rel <- function(x) {
+  x <- x %||% ""
+  x <- gsub("\\\\", "/", x)
+  sub("^data/", "", x)
+}
+
+cfg$project_name <- cfg$project_name %||% ""
+if (!nzchar(cfg$project_name)) {
+  stop("config project_name is required")
+}
+
+cfg$outputs <- cfg$outputs %||% list()
+cfg$outputs$step1 <- sanitize_data_rel(cfg$outputs$step1 %||% "intermediate/step1_process_to_fuelcalc")
+cfg$outputs$step2 <- sanitize_data_rel(cfg$outputs$step2 %||% "intermediate/step2_fuelcalc")
+cfg$outputs$step3 <- sanitize_data_rel(cfg$outputs$step3 %||% "outputs/step3_fire_model")
+cfg$outputs$reports <- sanitize_data_rel(cfg$outputs$reports %||% "outputs/reports")
+
+cfg$paths <- cfg$paths %||% list()
+for (nm in names(cfg$paths)) {
+  cfg$paths[[nm]] <- sanitize_data_rel(cfg$paths[[nm]])
+}
+
+project_root <- file.path(root, "projects", cfg$project_name)
+data_root <- file.path(project_root, "data")
+cfg$runtime <- list(
+  project_root = project_root,
+  data_root = data_root,
+  raw_dir = file.path(data_root, "raw"),
+  intermediate_dir = file.path(data_root, "intermediate"),
+  outputs_dir = file.path(data_root, "outputs"),
+  external_dir = file.path(data_root, "external"),
+  status_dir = file.path(data_root, "outputs", "run_status"),
+  manifest_dir = file.path(data_root, "outputs", "manifest")
+)
+
+dir.create(cfg$runtime$raw_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(cfg$runtime$intermediate_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(cfg$runtime$outputs_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(cfg$runtime$external_dir, recursive = TRUE, showWarnings = FALSE)
+
 cat("Project:", cfg$project_name, "\n")
 
-source(file.path(root, "R", "step1_clean_snap.R"))
-source(file.path(root, "R", "step2_fuelcalc.R"))
-source(file.path(root, "R", "step3_fire_model.R"))
+source(file.path(root, "R", "step0_snap_to_process.R"))
+source(file.path(root, "R", "step1_process_to_fuelcalc.R"))
+
+requested_steps <- NULL
+step_arg <- grep("^--steps=", args, value = TRUE)
+if (length(step_arg) > 0) {
+  requested_steps <- strsplit(sub("^--steps=", "", step_arg[[1]]), ",")[[1]]
+  requested_steps <- requested_steps[nzchar(requested_steps)]
+}
+
+available_steps <- list(
+  step0_snap_to_process = step0,
+  step1_process_to_fuelcalc = step1
+)
+
+steps_to_run <- if (is.null(requested_steps) || length(requested_steps) == 0) {
+  names(available_steps)
+} else {
+  unknown <- setdiff(requested_steps, names(available_steps))
+  if (length(unknown) > 0) {
+    stop("Unknown step name(s): ", paste(unknown, collapse = ", "))
+  }
+  requested_steps
+}
 
 run_started <- Sys.time()
 status <- list(
@@ -56,9 +123,9 @@ run_step <- function(step_name, fn) {
 err <- NULL
 tryCatch(
   {
-    run_step("step1_clean_snap", step1)
-    run_step("step2_fuelcalc", step2)
-    run_step("step3_fire_model", step3)
+    for (step_name in steps_to_run) {
+      run_step(step_name, available_steps[[step_name]])
+    }
     status$success <- TRUE
   },
   error = function(e) {
@@ -68,7 +135,7 @@ tryCatch(
 
 status$completed_at <- as.character(Sys.time())
 
-status_dir <- file.path(root, "data", "outputs", "run_status")
+status_dir <- cfg$runtime$status_dir
 dir.create(status_dir, recursive = TRUE, showWarnings = FALSE)
 write_json(
   status,
@@ -79,7 +146,7 @@ write_json(
 )
 
 # Build a UI-friendly manifest of the latest pipeline artifacts.
-manifest_dir <- file.path(root, "data", "outputs", "manifest")
+manifest_dir <- cfg$runtime$manifest_dir
 dir.create(manifest_dir, recursive = TRUE, showWarnings = FALSE)
 
 artifact <- function(path) {
@@ -92,26 +159,17 @@ artifact <- function(path) {
 
 manifest <- list(
   project = cfg$project_name,
+  project_root = cfg$runtime$project_root,
   generated_at = as.character(Sys.time()),
   run_status = artifact(file.path(status_dir, "pipeline_status.json")),
+  step0 = list(
+    summary = artifact(file.path(cfg$runtime$intermediate_dir, "step0_snap_to_process", "snap_to_process_summary.json"))
+  ),
   step1 = list(
-    summary = artifact(file.path(root, "data", "intermediate", "step1_clean_snap", "snap_summary.json")),
-    os_csv = artifact(file.path(root, "data", "intermediate", "step1_clean_snap", "clean_snap_os.csv")),
-    us_csv = artifact(file.path(root, "data", "intermediate", "step1_clean_snap", "clean_snap_us.csv")),
-    fuels_csv = artifact(file.path(root, "data", "intermediate", "step1_clean_snap", "clean_snap_fuels.csv"))
-  ),
-  step2 = list(
-    summary = artifact(file.path(root, "data", "intermediate", "step2_fuelcalc", "fuelcalc_summary.json")),
-    fuel_averages = artifact(file.path(root, "data", "intermediate", "step2_fuelcalc", "fuel_class_averages_by_stratum.csv")),
-    inputs_rds = artifact(file.path(root, "data", "intermediate", "step2_fuelcalc", "fuelcalc_inputs.rds"))
-  ),
-  step3 = list(
-    run_summary = artifact(file.path(root, "data", "outputs", "step3_fire_model", "fire_model_run.json")),
-    stand_structure = artifact(file.path(root, "data", "outputs", "step3_fire_model", "All_Treatments_StandStructure.csv")),
-    slash_residuals = artifact(file.path(root, "data", "outputs", "step3_fire_model", "SlashResiduals", "All_Treatments_SlashResiduals.csv")),
-    weather_stage = artifact(file.path(root, "data", "outputs", "step3_fire_model", "WeatherStage", "weather_stage_summary.json")),
-    fire_behavior_stage = artifact(file.path(root, "data", "outputs", "step3_fire_model", "FireBehaviorStage", "fire_behavior_stage_summary.json")),
-    fire_behavior_run = artifact(file.path(root, "data", "outputs", "step3_fire_model", "FireBehaviorRun", "fire_behavior_run_stage_summary.json"))
+    summary = artifact(file.path(cfg$runtime$intermediate_dir, "step1_process_to_fuelcalc", "process_to_fuelcalc_summary.json")),
+    outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step1_process_to_fuelcalc", "process_to_fuelcalc_outputs.rds")),
+    fuelcalc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalc")),
+    fuelcalcbc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalcBC"))
   )
 )
 
@@ -124,10 +182,10 @@ write_json(
 )
 
 if (!is.null(err)) {
-  cat("Pipeline failed. See data/outputs/run_status/pipeline_status.json\n")
+  cat("Pipeline failed. See ", file.path("projects", cfg$project_name, "data", "outputs", "run_status", "pipeline_status.json"), "\n", sep = "")
   stop(err)
 }
 
 cat("Pipeline complete.\n")
-cat("Status written to data/outputs/run_status/pipeline_status.json\n")
-cat("Manifest written to data/outputs/manifest/pipeline_manifest.json\n")
+cat("Status written to ", file.path("projects", cfg$project_name, "data", "outputs", "run_status", "pipeline_status.json"), "\n", sep = "")
+cat("Manifest written to ", file.path("projects", cfg$project_name, "data", "outputs", "manifest", "pipeline_manifest.json"), "\n", sep = "")

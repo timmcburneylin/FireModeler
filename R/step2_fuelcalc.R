@@ -1,10 +1,14 @@
 step2 <- function(cfg, root){
   cat("Running Step 2: FuelCalc\n")
 
-  `%||%` <- function(a, b) if (is.null(a) || length(a) == 0 || is.na(a)) b else a
+  `%||%` <- function(a, b) {
+    if (is.null(a) || length(a) == 0) return(b)
+    if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
+    a
+  }
 
-  in_dir <- file.path(root, cfg$outputs$step1)
-  out_dir <- file.path(root, cfg$outputs$step2)
+  in_dir <- file.path(cfg$runtime$data_root, cfg$outputs$step1)
+  out_dir <- file.path(cfg$runtime$data_root, cfg$outputs$step2)
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
   snap_rds <- file.path(in_dir, "clean_snap.rds")

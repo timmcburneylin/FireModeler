@@ -1,19 +1,35 @@
 {
-  "project_name": "FireModelProject",
+  "project_name": "",
   "fuelcalc_path": "",
   "fofem_path": "",
   "paths": {
-    "snap_overstory": "data/raw/SNAP/OS.csv",
-    "snap_understory": "data/raw/SNAP/US.csv",
-    "snap_extra": "data/raw/SNAP/EXTRA.csv",
-    "snap_fuels": "data/raw/SNAP/FUELS.csv",
-    "cathro_xlsx": "data/raw/CutSpecs/Cathro.xlsx",
-    "weather_csv": "data/raw/Weather/weather.csv"
+    "snap_overstory": "",
+    "snap_understory": "",
+    "snap_extra": "",
+    "snap_fuels": "",
+    "cathro_xlsx": "",
+    "weather_csv": ""
   },
   "outputs": {
-    "step1": "data/intermediate/step1_clean_snap",
-    "step2": "data/intermediate/step2_fuelcalc",
-    "step3": "data/outputs/step3_fire_model",
-    "reports": "data/outputs/reports"
+    "step1": "intermediate/step1_process_to_fuelcalc",
+    "step2": "intermediate/step2_fuelcalc",
+    "step3": "outputs/step3_fire_model",
+    "reports": "outputs/reports"
+  },
+  "process_to_fuelcalc": {
+    "cutting": true,
+    "tr_names": ["A", "B", "C"],
+    "thinning_target_order": [593, 647, 683],
+    "prune": [2, 2, 2],
+    "burning_flags": [false, false, false],
+    "thin_flags": [true, true, true],
+    "prune_flags": [true, true, true],
+    "emission_factor": [4, 4, 4],
+    "surf_fuel": ["TimberLitter", "TimberLitter", "TimberLitter"],
+    "bole_char_height": [2, 2, 2],
+    "moist": "VeryDry",
+    "climate": ["Arid", "Arid", "Arid"],
+    "moist_regimes": ["VeryDry", "VeryDry", "VeryDry"],
+    "season": ["Summer", "Summer", "Summer"]
   }
 }

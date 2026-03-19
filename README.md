@@ -17,11 +17,11 @@ All paths are relative, so this folder can be moved anywhere.
 
 Outputs to check after each run:
 
-1. Step 1 artifacts: `data/intermediate/step1_clean_snap/`
-2. Step 2 artifacts: `data/intermediate/step2_fuelcalc/`
-3. Step 3 artifacts: `data/outputs/step3_fire_model/`
-4. Run status (step-by-step success/errors): `data/outputs/run_status/pipeline_status.json`
-5. UI manifest (single source for app): `data/outputs/manifest/pipeline_manifest.json`
+1. Step 1 artifacts: `projects/<project_name>/data/intermediate/step1_clean_snap/`
+2. Step 2 artifacts: `projects/<project_name>/data/intermediate/step2_fuelcalc/`
+3. Step 3 artifacts: `projects/<project_name>/data/outputs/step3_fire_model/`
+4. Run status (step-by-step success/errors): `projects/<project_name>/data/outputs/run_status/pipeline_status.json`
+5. UI manifest (single source for app): `projects/<project_name>/data/outputs/manifest/pipeline_manifest.json`
 
 Python UI:
 
@@ -30,11 +30,13 @@ Python UI:
 2. Run:
    `streamlit run app/app.py`
    or double-click `run_ui_windows.bat`
+3. In the UI, set:
+   - `Project Name`: used as both the display label and the raw file prefix such as `TR_LionsBurn`
 
 Git/GitHub workflow:
 
 1. This repo tracks code/config/templates, not generated outputs or large raw data.
-2. After clone, copy your `data/raw/` inputs from your source machine.
+2. After clone, copy your inputs into `projects/<project_name>/data/raw/`.
 3. Optional local config override:
    - Create `config/config.json` for local changes.
    - If missing, pipeline falls back to `config/config.example.json`.
