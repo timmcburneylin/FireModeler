@@ -1,5 +1,5 @@
 #Function to Find nearest cell center based on a vector of latitude and longitutdes
-if (requireNamespace("geosphere", quietly = TRUE)) library(geosphere)
+library(geosphere)
 find_nearest <- function(station_lats, station_lons, weather_df) {
   # Initialize a data frame to store the results
   results_df <- data.frame(station_lat = station_lats, 

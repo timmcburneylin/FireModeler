@@ -1,30 +1,29 @@
-root <- normalizePath(getwd())
 #Code to calculate Nelson's 2003b Fire residence time model;
 
 #From Nelson 2003b: Reaction times and burning rates for wind tunnel headfires 
 
 #Uses equations from Albini 1980 to solve for submodels
-
+#model = models[x]
+#fuel = fuel[x, ]
+#topography = topography
+#structure = structure
+#weather = weather
+#date = date
+#IntensityType = "Byram"
+#UseModel = FALSE
+#ModelEFFM = FALSE
 
 #Load functions:
 #install.packages(c("rootSolve"))
-if (requireNamespace("Rothermel", quietly = TRUE)) library(Rothermel)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
-if (requireNamespace("plantecophys", quietly = TRUE)) library(plantecophys)
+library(firebehavioR)
 library(dplyr)
 library(stats)
-if (requireNamespace("rootSolve", quietly = TRUE)) library(rootSolve)
-if (requireNamespace("geosphere", quietly = TRUE)) library(geosphere)
+library(geosphere)
 
-source_fun("rothermel_function_mod.R")
+source(file.path(root, "R_functions", "rothermel_function_mod.R"))
 #Load Custom Fuel Models
-CustomModels<-read.csv(file.path(root, "templates", "Modeling", "CustomFuelModels.csv"))
-if (exists("fuelModels")) {
-  fuelModels <- rbind(fuelModels[,1:16], CustomModels[,2:17])
-} else {
-  # start from custom models (drop the first column to match expected 16 cols)
-  fuelModels <- CustomModels[,2:17]
-}
+CustomModels<-read.csv(file.path(root, "templates", "CustomFuelModels.csv"))
+fuelModels<-rbind(fuelModels[,1:16],CustomModels[,2:17])
 
 
 residence_time<-function(
@@ -210,19 +209,14 @@ residence_time<-function(
                                                   rosMult = 1.7,cfbForm = "sr",folMoist = "y")
     FuelConsumed<-Rothermel_firebehave$fireBehavior$`Heat per Unit Area [kJ/m2]`/H
     
-    Rothermel_ros<-ros(modeltype = "D",
-                       w=unlist(unname(as.vector(load))),
-                       s=unlist(unname(as.vector(sav))),
-                       delta=unlist(unname(as.vector(depth))),
-                       mx.dead = unlist(unname(as.vector(mxdead))),
-                        h<-c(rep(H,3),19500,20000),
-                       m=as.vector(moist),
-                       u=as.vector(wind_adj*WindSpeed),
-                       slope=as.vector(slp))
+    # Use the local rothermel_mod surface ROS instead of the external
+    # Rothermel package's ros() helper.
     
     #Rate of spread into Meters per second
-    R<-Rothermel_firebehave$fireBehavior$`Rate of Spread [m/min]`/60
-    #R<-Rothermel_ros$`ROS [m/min]`/60
+    R<-max(
+      Rothermel_firebehave$detailSurface$`Potential ROS [m/min]`/60,
+      Rothermel_firebehave$fireBehavior$`Rate of Spread [m/min]`/60
+    )
     
     #particle density kg/m^3: Constant from Cruz et al 2006: CFIM
     p_f<-398
@@ -269,7 +263,7 @@ residence_time<-function(
     #H <-weighted.mean(heat_df$H_N, heat_df$Load)
     
 #If no fire is predicted then exit
-    if(is.na(R) | R==0){
+    if(is.na(R) | R==0 | R<=0.01){
       Results<-list(
         Residence.Time.s=0,
         Reaction.Time.s=0,
@@ -407,6 +401,7 @@ residence_time<-function(
     k.c<- 6.63*10^-5
     v<- 1.13*10^-4
     h.c <- 0.344 * ((SAVRatio * k.c)/4) * ((4*V )/(SAVRatio*v))^0.56
+    if(is.na(h.c)){h.c<-0}
     h.p <- h.r + h.c
     
     

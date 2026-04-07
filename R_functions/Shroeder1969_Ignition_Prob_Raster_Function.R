@@ -8,9 +8,9 @@
   
 #load packages
 library(dplyr)
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(raster)
+library(firebehavioR)
+library(terra)
 
 #Inputs into the model are temperature(c)(ie dry bulb), relative humdity, crown closure, hour (of day),month, aspect, slope.
 ignition_probability<-function(closure_rast,

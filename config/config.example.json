@@ -31,5 +31,36 @@
     "climate": ["Arid", "Arid", "Arid"],
     "moist_regimes": ["VeryDry", "VeryDry", "VeryDry"],
     "season": ["Summer", "Summer", "Summer"]
+  },
+  "fuelcalc_to_firemodel": {
+    "weather_type": "MOF",
+    "weather_name": "MERRITT 2 HUB",
+    "weather_code": 1399,
+    "weather_lat": 50.121389,
+    "weather_long": -120.744167,
+    "danger_region": 3
+  },
+  "firemodel_results": {
+    "elevation": 483,
+    "custom_fuels": [true, true, true],
+    "prune_vector": [2, 2, 2],
+    "fuels": [0.75, 0.75, 0.75],
+    "hr1000s": [1, 1, 1],
+    "ftcad_vector": ["C-7", "C-7", "C-7"],
+    "forest_type": ["Pine", "Pine", "Pine", "Pine", "Pine", "Pine"],
+    "surf_fuel": ["grass", "grass", "grass", "grass", "grass", "grass"],
+    "fsg_mod_flag": [false, false, false],
+    "fsg_field_flag": [true, true, true],
+    "intensity_flag": "Byram",
+    "fuel_moisture_type": "Model",
+    "heat_flag": "Manual",
+    "wind_gust_mod": false,
+    "crown_fire_type": ["Wagner", "Wagner", "Wagner"],
+    "crown_fire_model": ["Perrakis", "Perrakis", "Perrakis"],
+    "grass_curing": 75,
+    "num_weathers": 250,
+    "weather_name": "MERRITT 2 HUB",
+    "season": "Summer",
+    "advanced_models": true
   }
 }

@@ -52,6 +52,7 @@ cfg$runtime <- list(
   intermediate_dir = file.path(data_root, "intermediate"),
   outputs_dir = file.path(data_root, "outputs"),
   external_dir = file.path(data_root, "external"),
+  templates_dir = file.path(root, "templates"),
   status_dir = file.path(data_root, "outputs", "run_status"),
   manifest_dir = file.path(data_root, "outputs", "manifest")
 )
@@ -65,6 +66,8 @@ cat("Project:", cfg$project_name, "\n")
 
 source(file.path(root, "R", "step0_snap_to_process.R"))
 source(file.path(root, "R", "step1_process_to_fuelcalc.R"))
+source(file.path(root, "R", "step2_fuelcalc.R"))
+source(file.path(root, "R", "step3_fire_model.R"))
 
 requested_steps <- NULL
 step_arg <- grep("^--steps=", args, value = TRUE)
@@ -75,7 +78,9 @@ if (length(step_arg) > 0) {
 
 available_steps <- list(
   step0_snap_to_process = step0,
-  step1_process_to_fuelcalc = step1
+  step1_process_to_fuelcalc = step1,
+  step2_fuelcalc = step2,
+  step3_fire_model = step3
 )
 
 steps_to_run <- if (is.null(requested_steps) || length(requested_steps) == 0) {
@@ -170,6 +175,24 @@ manifest <- list(
     outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step1_process_to_fuelcalc", "process_to_fuelcalc_outputs.rds")),
     fuelcalc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalc")),
     fuelcalcbc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalcBC"))
+  ),
+  step2 = list(
+    summary = artifact(file.path(cfg$runtime$intermediate_dir, "step2_fuelcalc", "fuelcalc_to_firemodel_summary.json")),
+    outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step2_fuelcalc", "fuelcalc_to_firemodel_outputs.rds")),
+    wind_rose = artifact(file.path(cfg$runtime$raw_dir, "Weather", paste0("WindRoses/", (cfg$fuelcalc_to_firemodel$weather_name %||% ""), "_WindRoses.jpg"))),
+    danger_days = artifact(file.path(cfg$runtime$raw_dir, "Weather", paste0("DangerDays/", (cfg$fuelcalc_to_firemodel$weather_name %||% ""), "_DangerDays.jpg"))),
+    weather_conditions = artifact(file.path(cfg$runtime$raw_dir, "Weather", paste0("WeatherConditions/", (cfg$fuelcalc_to_firemodel$weather_name %||% ""), "_WeatherDistributions.jpg")))
+  ),
+  step3 = list(
+    summary = artifact(file.path(cfg$runtime$outputs_dir, "step3_fire_model", "firemodel_results_summary.json")),
+    outputs_rds = artifact(file.path(cfg$runtime$outputs_dir, "step3_fire_model", "firemodel_results_outputs.rds")),
+    treatment_summary = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "TreatmentSummaryTable.png")),
+    crown_fire_probability_boxplots = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "ProbabilityCrownFireBoxPlot.png")),
+    crowning_index_windspeed = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "CrownProbWindSpeed.png")),
+    crowning_index_fuelmoist = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "CrownProbFuelMoist.png")),
+    head_fire_intensity = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "MedianHFIBarPlot.png")),
+    rate_of_spread = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "MedianROSBarPlot.png")),
+    fbp_90th_csi_stand = artifact(file.path(cfg$runtime$raw_dir, "FireBehavior", "Outputs", "FBP_CSISummaryTable.png"))
   )
 )
 

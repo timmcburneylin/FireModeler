@@ -1,5 +1,5 @@
 #Load libraries
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(terra)
 library(progress)
 
 #Function to calculate the spotting values for threat calculation under the 2017 Provincial Strategtic Threat Analysis framework:

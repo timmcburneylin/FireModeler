@@ -1,106 +1,80 @@
-step3 <- function(cfg, root) {
-cat("Running Step 3: FireModel Results\n")
+#Running Fire Modeling
+#this script runs Fire Models
 
-`%||%` <- function(a, b) {
-  if (is.null(a) || length(a) == 0) return(b)
-  if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
-  a
-}
-
-step_cfg <- cfg$firemodel_results %||% list()
-target_env <- environment()
-
-as_char_vec <- function(x, default) as.character(unlist(x %||% default, use.names = FALSE))
-as_num_vec <- function(x, default) as.numeric(unlist(x %||% default, use.names = FALSE))
-as_logical_vec <- function(x, default) {
-  vals <- unlist(x %||% default, use.names = FALSE)
-  if (is.logical(vals)) return(as.logical(vals))
-  tolower(as.character(vals)) %in% c("true", "t", "1", "yes", "y")
-}
-RHtoVPD <- function(RH, Temp, Pa = 101) {
-  rh_frac <- pmax(pmin(as.numeric(RH), 100), 0) / 100
-  temp_c <- as.numeric(Temp)
-  es_kpa <- 0.6108 * exp((17.27 * temp_c) / (temp_c + 237.3))
-  es_kpa * (1 - rh_frac)
-}
-source_local_function <- function(fname) {
-  f <- file.path(root, "R_functions", fname)
-  if (!file.exists(f)) stop("Missing R_functions file: ", f)
-  source(f, local = target_env)
-}
+#CALL CONFIG
+#TESING WITH ROOT AND PROJECT NAME
+root="Z:/Scripts/FronteraCodez/Modeling Templates/Modeling Hub"
+project_name="PROJECT"
 
 #Libraries Loading:
+library(plyr)
 library(dplyr)
+library(sf)
+library(terra)
+library(plyr)
 library(stringr)
+library(magrittr)
+library(tidyverse)
 library(cffdrs)
+library(magrittr)
+library(XLConnect)
+library(openair)
+library(plyr)
 library(ggplot2)
 library(grid)
+library(tidyr)
+library(reshape2)
+library(readxl)
+library(testthat)
+library(GA)
+library(ftsa)
+library(Rothermel)
+library(xlsx)
+library(devtools)
 library(firebehavioR)
+library(stars)
+library(geostats)
+library(plantecophys)
 library(progress)
+library(ggstatsplot)
+library(ggridges)
+library(ggdist)
+library(MetBrewer)
+library(progress)
+library(DBI)
+library(RSQLite)
+library(glue)
+library(rootSolve)
+library(reshape2)
+library(progress)
+library(rlang)
+library(ggstatsplot)
+library(glue)
+library(spatialEco)
 library(flextable)
 
-project_name <- cfg$project_name %||% ""
-if (!nzchar(project_name)) stop("config project_name is required for FireModel Results")
-name <- project_name
-project <- name
+name=project_name
+project=name
 
 #File Paths:
-path <- cfg$runtime$raw_dir
-step_dir <- file.path(cfg$runtime$outputs_dir, "step3_fire_model")
-dir.create(step_dir, recursive = TRUE, showWarnings = FALSE)
-progress_path <- file.path(step_dir, "step3_progress.json")
-
-write_progress <- function(status, period = NULL, weather_index = NULL, weather_total = NULL,
-                           stratum = NULL, iter = NULL, total_iters = NULL, message = NULL,
-                           force_console = FALSE) {
-  payload <- list(
-    project_name = project_name,
-    status = status,
-    timestamp = as.character(Sys.time()),
-    period = period,
-    weather_index = weather_index,
-    weather_total = weather_total,
-    stratum = stratum,
-    iter = iter,
-    total_iters = total_iters,
-    message = message
-  )
-  jsonlite::write_json(payload, progress_path, pretty = TRUE, auto_unbox = TRUE, null = "null")
-  if (force_console || !is.null(message)) {
-    cat(sprintf(
-      "[Step3] %s | status=%s | period=%s | weather=%s/%s | stratum=%s | iter=%s/%s%s\n",
-      payload$timestamp,
-      status,
-      ifelse(is.null(period), "-", as.character(period)),
-      ifelse(is.null(weather_index), "-", as.character(weather_index)),
-      ifelse(is.null(weather_total), "-", as.character(weather_total)),
-      ifelse(is.null(stratum), "-", as.character(stratum)),
-      ifelse(is.null(iter), "-", as.character(iter)),
-      ifelse(is.null(total_iters), "-", as.character(total_iters)),
-      ifelse(is.null(message), "", paste0(" | ", message))
-    ))
-  }
-}
-
-write_progress(status = "starting", message = "Step 3 initialized", force_console = TRUE)
+#root<-normalizePath(getwd())
+path = file.path(root,"projects",name,"data","raw")
 
 # Prefix for file paths
-snap_prefix <- "/SNAP/"
-FWI_prefix <- "/Weather/"
-Fuel_prefix <- "/FireBehavior/Inputs/"
-cath_prefix <- "/Cut Specs for run/"
-Fire_out <- "/FireBehavior/Outputs/"
-s_s_prefix <- "/Stand_StockTables/"
-out_slash <- paste0(path, "/FuelCalcBC/Outputs/Slash/")
-out_fuelcalc <- paste0(path,"/FuelCalcBC/Outputs/")
-fuelcalc <- paste0(path,"/FuelCalcBC/")
-in_weather <- paste0("/Weather/")
-out_weather <- paste0("/Weather/")
-out_residuals <- paste0(path, "/FuelCalcBC/Outputs/Slash/Residuals/")
-results <- "/Outputs/"
+snap_prefix = "/SNAP/"
+FWI_prefix = "/Weather/"
+Fuel_prefix = "/FireBehavior/Inputs/"
+cath_prefix = "/Cut Specs for run/"
+Fire_out="/FireBehavior/Outputs/"
+s_s_prefix = "/Stand_StockTables/"
+out_slash = paste0(path, "/FuelCalcBC/Outputs/Slash/")
+out_fuelcalc = paste0(path,"/FuelCalcBC/Outputs/")
+fuelcalc = paste0(path,"/FuelCalcBC/")
+in_weather = paste0("/Weather/")
+out_weather = paste0("/Weather/")
+out_residuals =paste0(path, "/FuelCalcBC/Outputs/Slash/Residuals/")
+results = "/Outputs/"
 path_fcp <- paste0(path,"/FuelCalcBC/")
-
-dir.create(file.path(path, "FireBehavior", "Outputs"), recursive = TRUE, showWarnings = FALSE)
 
 # Load in SNAP summary files
 Snap_OS = read.csv(paste0(path,snap_prefix,project,"_OS.csv"))
@@ -115,58 +89,68 @@ mode <- function(x) {
   unique_vals[which.max(tabulate(match(x, unique_vals)))]
 }
 
-source_local_function("Residence_Time_Function_Nelson2003b.R")
-source_local_function("Improved_CFIS_perrakis_function.R")
-source_local_function("Crosswalk CAN to US Fuel Model Function.R")
-source_local_function("Select_Best_Fuel_Model_Rothermel.R")
-source_local_function("Find_Nearest_Cell_BC.R")
-source_local_function("Prob_Crown_Function_Perrakis2023.R")
-source_local_function("fueltypes_crosswalkFBP_function.R")
-source_local_function("fueltypes_crosswalk_function.R")
-source_local_function("fueltypes_crosswalkFBP_Raster_function.R")
-source_local_function("Crown_Area_Function.R")
-source_local_function("Get_Season_Function.R")
-source_local_function("FMC_Function.R")
-source_local_function("SFC_Function.R")
-source_local_function("Fine_Fuel_MC_SA_function.R")
-source_local_function("initial_spread_index.R")
-source_local_function("fire_behavior_prediction_function.R")
-source_local_function("surface_fuel_consumption_CANFBP_function.R")
-source_local_function("WindGust_Function.R")
-source_local_function("rothermel_function_mod.R")
-source_local_function("BC_TREECODES_USCodes_function.R")
-source_local_function("CFC_Groot_Function.R")
-source_local_function("Calculate_Coarse_Load_Function.R")
+source(file.path(root,"projects",project,"data","raw","functions","Residence_Time_Function_Nelson2003b.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Improved_CFIS_perrakis_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Crosswalk CAN to US Fuel Model Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Select_Best_Fuel_Model_Rothermel.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Find_Nearest_Cell_BC.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Prob_Crown_Function_Perrakis2023.R"))
+source(file.path(root,"projects",project,"data","raw","functions","fueltypes_crosswalkFBP_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","fueltypes_crosswalk_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","fueltypes_crosswalkFBP_Raster_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Crown_Area_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Get_Season_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","FMC_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","SFC_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Fine_Fuel_MC_SA_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","initial_spread_index.R"))
+source(file.path(root,"projects",project,"data","raw","functions","fire_behavior_prediction_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Flaming_Ign_Probability_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Ignition_Probability_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","CanFuel_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","FMC_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","ISI_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Flaming_Ign_Probability_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","FFMC_sa_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","CFIS_Modified_Raster_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Fire_Behavior_Pred_Rast_cffdrs_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","surface_fuel_consumption_CANFBP_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","WindGust_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","rothermel_function_mod.R"))
+source(file.path(root,"projects",project,"data","raw","functions","BC_TREECODES_USCodes_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","CFC_Groot_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Calculate_Coarse_Load_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","TreeVolume_Calculator_Function_NVEL.R"))
 
 #UI Inputs(Modifiable):---------------------------------------------------------------------------------------------------
 
 #Set Elevation in Meters
-Elevation <- as.numeric(step_cfg$elevation %||% 483) #userinput #What is the elevation of your FTUs?
+Elevation<-483 #userinput #What is the elevation of your FTUs?
 
 #Use Custom Fuels or a Model? TRUE or False
-CustomFuels <- as_logical_vec(step_cfg$custom_fuels, c(TRUE,TRUE,TRUE)) #dropdown #Do you want to use custom(field measured fuels) or fuel models? one for each treatment #options TRUE or FALSE
+CustomFuels<-c(TRUE,TRUE,TRUE) #dropdown #Do you want to use custom(field measured fuels) or fuel models? one for each treatment #options TRUE or FALSE
 
 #Fuel Structure and Fuel Types:
-pruneVECT <- as_num_vec(step_cfg$prune_vector, c(2,2,2))
-fuels <- as_num_vec(step_cfg$fuels, c(0.75,0.75,0.75))
-hr1000s <- as_num_vec(step_cfg$hr1000s, c(1,1,1))
-ftcad_vector <- as_char_vec(step_cfg$ftcad_vector, c("C-7","C-7","C-7"))
-Forest_Type <- as_char_vec(step_cfg$forest_type, c("Pine","Pine","Pine","Pine","Pine","Pine"))
-SurfFuel <- as_char_vec(step_cfg$surf_fuel, c("grass","grass","grass","grass","grass","grass"))
+pruneVECT = c(2,2,2)    #userinput #What pruning height are you using in meters? one for each treatment
+fuels = c(0.75,0.75,0.75) #userinput #What fine fuel loads (<7cm kg/m^2) do you want post treatment? one for each treatment
+hr1000s=c(1,1,1) #userinput #What 1000hr fuels (>7 cm kg/m^2) do you want post treatment? one for each treatment
+ftcad_vector<-c("C-7","C-7","C-7") #dropdown #What Canadian  Fuel Type post treatment is expected?? one for each treatment options: C-1,C-2,C-3,C-4,C-5,C-6,C-7,S-1,S-2,S-3,O-1a/b,D-1/2,M-1/2,M-3/4
+Forest_Type<- c("Pine","Pine","Pine","Pine","Pine","Pine")#userinput #Set Forest Type for each Treatment: one for each treatment combo ie A PRE and Post, B pre and post etc,#options: "Deciduous", "Douglas-fir", "Mixed", "Pine", "Spruce", "Grass", "Shrub", "Slash"
+SurfFuel<-c("grass","grass","grass","grass","grass","grass") #userinput #What type of fuel will carry a surface fire? one for each treatment combo ie A PRE and Post, B pre and post etc,   #options: litter, b_litter (broadleaf-litter), shrub, grass, slash, moss
 
 
 #Fuel Strata Gap Considerations
-FSG.Mod.Flag <- as_logical_vec(step_cfg$fsg_mod_flag, c(FALSE,FALSE,FALSE))
-FSG.Field.Flag <- as_logical_vec(step_cfg$fsg_field_flag, c(TRUE,TRUE,TRUE))
+FSG.Mod.Flag<-c(FALSE,FALSE,FALSE)#dropdown #Should we modify Fuel Strata Gap to account for Bulk Density Changes? one for each treatment options TRUE or FALSE
+FSG.Field.Flag<-c(TRUE,TRUE,TRUE)#dropdown #Should we use the Field Measure of Fuel Strata Gap or the Modeled Measure from Fuelcalc?: If TRUE uses Field Measure. options TRUE or FALSE
 
 
 #Fire Modeling
-IntensityFlag <- as.character(step_cfg$intensity_flag %||% "Byram")
-fuelmoisturetype <- as.character(step_cfg$fuel_moisture_type %||% "Model")
-HFlag <- as.character(step_cfg$heat_flag %||% "Manual")
-WindGustMod <- isTRUE(step_cfg$wind_gust_mod %||% FALSE)
-CrownFireType <- as_char_vec(step_cfg$crown_fire_type, c("Wagner","Wagner","Wagner"))
-CrownFireModel <- as_char_vec(step_cfg$crown_fire_model, c("Perrakis","Perrakis","Perrakis"))
+IntensityFlag<-"Byram" #dropdown #How do you want to calculate fire intensity? options Nelson, Byram, or Rothermel. Suggested use: Byram
+fuelmoisturetype="Model" #dropdown #How do you want to calculate fine fuel moisture? options: "Wotton" for stand adjusted modeled FFMC,#"Model" for modeled fine fuel moisture based on temperature and relative humidity
+HFlag<-"Manual" #dropdown #What type of heat of combustion value do you want? options Manual or Nelson. Suggested use: Manual
+WindGustMod<-FALSE #dropdown #Do you want to modify wind speeds to account for gusting? options TRUE OR FALSE
+CrownFireType<-c("Wagner","Wagner","Wagner") #dropdown #What crown fire calculation type do you want? one per treatment options Wagner(Van Wagner 1993), SR (Scott and Reinhardt 2001) or Finney (Finney 1998)
+CrownFireModel=c("Perrakis","Perrakis","Perrakis")#dropdown #What crown fire model do you want to use? one per treatment options Perrakis or CFIS, recommended Perrakis
 
 #userinput #What is your grass curing percentage? 
   #Recommended 
@@ -174,15 +158,15 @@ CrownFireModel <- as_char_vec(step_cfg$crown_fire_model, c("Perrakis","Perrakis"
   #10-30:late spring, early summer
   #30-70:mid summer
   #70+:late summer, drought conditions, or fall
-  GrassCuring <- as.numeric(step_cfg$grass_curing %||% 75)
+  GrassCuring=75
   
 #Weather System:
-NumWeathers <- as.numeric(step_cfg$num_weathers %||% 150)
-WeatherName <- as.character(step_cfg$weather_name %||% "MERRITT 2 HUB")
-Season <- as.character(step_cfg$season %||% "Summer")
+NumWeathers=150 #userinput #Number of weather days to iterate over: choose between 100-500 to avoid long processing times, make shorter for more TUs
+WeatherName="MERRITT 2 HUB" #userinput #What is the name of weather station you are using?
+Season="Summer" #dropdown #What Season is it? options "Spring","Summer","Winter", NOTE: Summer for fire risk reduction, Spring or Winter for rx burning.
 
 #Plotting
-AdvancedModels <- isTRUE(step_cfg$advanced_models %||% TRUE)
+AdvancedModels=TRUE#dropdown #Do you want to plot advanced Models? #option: TRUE or FALSE
 
 #PLOT DISPLAY:!!!!!
 #-Treatment Summary:paste0(path,Fire_out,"TreatmentSummaryTable.png")
@@ -601,13 +585,11 @@ for(j in 1:length(strata)){
     
     #Merge data frames
     US_SPH_melt <- reshape2::melt(US_SPH, id = "DBH")
-    names(US_SPH_melt)[names(US_SPH_melt) == "variable"] <- "Species"
-    names(US_SPH_melt)[names(US_SPH_melt) == "value"] <- "SPH"
+    setnames(US_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
     SPH_merge<- US_SPH_melt
     
     US_Cent_melt<- reshape2::melt(US_Cent, id = "DBH")
-    names(US_Cent_melt)[names(US_Cent_melt) == "variable"] <- "Species"
-    names(US_Cent_melt)[names(US_Cent_melt) == "value"] <- "Cen"
+    setnames(US_Cent_melt, old = c("variable", "value"), new = c("Species", "Cen"))
     #remove columns where centroid is zero because no trees
     US_Cent_melt<-US_Cent_melt %>% filter(Cen > 0)
     #modify cutting specs
@@ -626,8 +608,7 @@ for(j in 1:length(strata)){
       dplyr::select(-DBH.Class)
     
     cuttingSpecs_melt <- reshape2::melt(cuttingSpecs, id = "DBH")
-    names(cuttingSpecs_melt)[names(cuttingSpecs_melt) == "variable"] <- "Species"
-    names(cuttingSpecs_melt)[names(cuttingSpecs_melt) == "value"] <- "Cutting_Spec"
+    setnames(cuttingSpecs_melt, old = c("DBH", "variable", "value"), new = c("DBH", "Species", "Cutting_Spec"))
     ##merge with cutting spec
     SPH_CUT <- merge(SPH_merge, cuttingSpecs_melt,  by =  c("Species", "DBH"), all.x = TRUE)
     
@@ -756,11 +737,9 @@ for(j in 1:length(strata)){
     
     #Merge data frames
     US_SPH_melt <- reshape2::melt(US_SPH, id = "DBH")
-    names(US_SPH_melt)[names(US_SPH_melt) == "variable"] <- "Species"
-    names(US_SPH_melt)[names(US_SPH_melt) == "value"] <- "SPH"
+    setnames(US_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
     OS_SPH_melt <- reshape2::melt(OS_SPH, id = "DBH")
-    names(OS_SPH_melt)[names(OS_SPH_melt) == "variable"] <- "Species"
-    names(OS_SPH_melt)[names(OS_SPH_melt) == "value"] <- "SPH"
+    setnames(OS_SPH_melt, old = c("variable", "value"), new = c("Species", "SPH"))
     SPH_merge<- rbind(OS_SPH_melt,US_SPH_melt)
     
     #remove columns where centroid is zero because no trees and remove columns where CBH is too far from over fuelbed to be considered part of surface fire activity: then use that to calculate understory centroid
@@ -788,8 +767,7 @@ for(j in 1:length(strata)){
       dplyr::select(-DBH.Class)
     
     cuttingSpecs_melt <- reshape2::melt(cuttingSpecs, id = "DBH")
-    names(cuttingSpecs_melt)[names(cuttingSpecs_melt) == "variable"] <- "Species"
-    names(cuttingSpecs_melt)[names(cuttingSpecs_melt) == "value"] <- "Cutting_Spec"
+    setnames(cuttingSpecs_melt, old = c("DBH", "variable", "value"), new = c("DBH", "Species", "Cutting_Spec"))
     
     ##merge with cutting spec
     SPH_CUT <- merge(SPH_merge, cuttingSpecs_melt,  by =  c("Species", "DBH"), all.x = TRUE)
@@ -1199,7 +1177,7 @@ strata_data$SurfFuel<-SurfFuel
 
 #Weather data: if you want you can sample
 weather_list <- daily_weather
-weather_list$Date <- as.Date(weather_list$DATE, format = "%Y-%m-%d")
+weather_list$Date <- ymd(weather_list$DATE)
 set.seed(123)
 if(NumWeathers < nrow(daily_weather)){
 weather_list <- daily_weather %>% slice_sample(n = NumWeathers)
@@ -1224,13 +1202,6 @@ pb <- progress_bar$new(
 
 #initialize
 iter <- 0
-write_progress(
-  status = "running",
-  weather_total = nrow(weather_list),
-  total_iters = total_iters,
-  message = "Entering main Step 3 model loop",
-  force_console = TRUE
-)
 
 #Run Fire Behaviour Models----------------------------------------------------------------------------------
 suppressWarnings({
@@ -1474,13 +1445,29 @@ for(P in unique(strata_data$Period)){
       ScottReinhardt$FuelConsumed_kg_m2<-ScottReinhardt$fireBehavior$`Heat per Unit Area [kJ/m2]`/H
       
       
-      # Use the local rothermel_mod output instead of the external Rothermel
-      # package. The detailed surface ROS is the closest replacement for the
-      # former ros(modeltype = "D", ...) call.
-      rothermel_surface_ros <- ScottReinhardt$detailSurface$`Potential ROS [m/min]`
+      #Rothermel Package
+      load<-Plot_fuels %>% dplyr::select(load1hr,load10hr,load100hr,loadLiveHerb,loadLiveWoody)
+      sav<-Plot_fuels %>%dplyr::select(sav1hr,sav10hr,sav100hr,savLiveHerb,savLiveWoody)
+      depth<-Plot_fuels$fuelBedDepth
+      mxdead<-Plot_fuels %>% dplyr::select(mxDead)
+      heat<-c(rep(H,3),19500,20000)#standard Heat of combustion
+      #heat<-c(heat_df$H_N[2:4],19500,20000) #or calculated values from Albini equations
+      moist<- cbind(effm$fm1hr,effm$fm10hr,effm$fm100hr,herb_live,woody_live)
+      u1<-WS_mid
+      slp<-Plot_stand$slope
+      WindSpeed<-WS
+      Rothermel_ros<-ros(modeltype = "D",
+                         w=unlist(unname(as.vector(load))),
+                         s=unlist(unname(as.vector(sav))),
+                         delta=unlist(unname(as.vector(depth))),
+                         mx.dead = unlist(unname(as.vector(mxdead))),
+                         h=heat,
+                         m=as.vector(moist),
+                         u=as.vector(wind_adj*WindSpeed),
+                         slope=as.vector(slp))
       
       #Check which rate of spread is greater and use that or use mean:
-      ROS<-max(c(rothermel_surface_ros, 
+      ROS<-max(c(Rothermel_ros$`ROS [m/min]`, 
                  ScottReinhardt$fireBehavior$`Rate of Spread [m/min]`))
       
       #Extract Final SFC
@@ -1650,17 +1637,6 @@ for(P in unique(strata_data$Period)){
       # Tick the progress bar:
       iter <- iter + 1
       pb$tick()
-      write_progress(
-        status = "running",
-        period = P,
-        weather_index = i,
-        weather_total = nrow(weather_list),
-        stratum = STRATA,
-        iter = iter,
-        total_iters = total_iters,
-        message = "Completed loop iteration",
-        force_console = (iter == 1 || iter %% 10 == 0 || iter == total_iters)
-      )
       
       }
     }
@@ -1672,7 +1648,7 @@ saveRDS(results_list,paste0(path,Fire_out,"FireModelingResults.rds"))
 #Extract Results:--------------------------------------------------------
 Results<-readRDS(paste0(path,Fire_out,"FireModelingResults.rds"))
 
-Res <- dplyr::bind_rows(
+Res <- rbindlist(
   lapply(names(Results), function(name) {
     res <- Results[[name]]
     
@@ -1681,8 +1657,8 @@ Res <- dplyr::bind_rows(
     weather_match <- str_match(name, "Weather[_=](\\d+)")[,2]
     period_match  <- str_match(name, "^(.*?)_+Strata")[,2]
     
-    # Return as a plain data.frame row
-    data.frame(
+    # Return as data.table row
+    data.table(
       Period = period_match,
       Strata = strata_match,
       Weather = weather_match,
@@ -1729,10 +1705,10 @@ Res <- dplyr::bind_rows(
       WS=res$Plot_stand$ws,
       WD=res$Plot_stand$wind_d,
       ISI=res$FBP$ISI,
-      FFMC=res$FBP$FFMC,
-      stringsAsFactors = FALSE
+      FFMC=res$FBP$FFMC
     )
-  })
+  }),
+  fill = TRUE
 )
 
 write.csv(Res,paste0(path,Fire_out,"FireModelingResults.csv"),row.names=FALSE)
@@ -2069,23 +2045,5 @@ ggsave(paste0(path, Fire_out, "MedianROSBarPlot.png"),
        height = 5,
        units = "in",
        dpi = 300)
-}
-  summary <- list(
-    project_name = project_name,
-    raw_dir = cfg$runtime$raw_dir,
-    firebehavior_output_dir = file.path(path, "FireBehavior", "Outputs"),
-    plots = list(
-      treatment_summary = file.path(path, "FireBehavior", "Outputs", "TreatmentSummaryTable.png"),
-      probability_crown_fire_boxplot = file.path(path, "FireBehavior", "Outputs", "ProbabilityCrownFireBoxPlot.png"),
-      crown_prob_windspeed = file.path(path, "FireBehavior", "Outputs", "CrownProbWindSpeed.png"),
-      crown_prob_fuel_moist = file.path(path, "FireBehavior", "Outputs", "CrownProbFuelMoist.png"),
-      median_hfi = file.path(path, "FireBehavior", "Outputs", "MedianHFIBarPlot.png"),
-      median_ros = file.path(path, "FireBehavior", "Outputs", "MedianROSBarPlot.png"),
-      fbp_90th_csi_stand = file.path(path, "FireBehavior", "Outputs", "FBP_CSISummaryTable.png")
-    )
-  )
-  saveRDS(summary, file.path(step_dir, "firemodel_results_outputs.rds"))
-  jsonlite::write_json(summary, file.path(step_dir, "firemodel_results_summary.json"), pretty = TRUE, auto_unbox = TRUE, null = "null")
-  write_progress(status = "completed", iter = total_iters, total_iters = total_iters, message = "Step 3 completed", force_console = TRUE)
 }
 #---------------------------------------------------------------------

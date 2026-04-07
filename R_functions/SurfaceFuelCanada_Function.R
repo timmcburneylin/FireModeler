@@ -4,13 +4,13 @@
 #Function varies by species, genera, and ecozone and can be changed depending on type of data you have.
 
 #Load Packagaes
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
+library(raster)
 library(dplyr)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
+library(terra)
+library(firebehavioR)
 
 #Load Functions
-source_fun("Crosswalk CAN to US Fuel Model Function.R")
+source("Z:/Scripts/FronteraCodez/Functions/Crosswalk CAN to US Fuel Model Function.R")
 
 
 #Test data
@@ -59,6 +59,7 @@ fuel_prediction<- function(
   BestUS_Model<- Best_US_Model(Canadian_Fuel_Model = FuelType, Preset = "Yes", Plot = "Yes", 
                            Lat = Latitude, Long = Longitude, Original13 = "No", Aspect=180,Slope=30)
   BestUS_Model$WeatherConditions
+  
   #Rothermel function comparing ROS Curves
   
   #Create input fuel moisture data

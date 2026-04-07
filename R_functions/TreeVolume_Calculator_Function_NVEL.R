@@ -1,12 +1,12 @@
 #Function to calculate tree volume per the National Volume Estimator Library
 #Load libraries
 library(dplyr)
-if (requireNamespace("sf", quietly = TRUE)) library(sf)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(sf)
+library(terra)
 
 #load volume library
 dyn.load("C:/NVEL/64/vollib.dll")
-source_fun("BCTreeCode_USFIANumber_Function.R")
+source("Z:/Scripts/FronteraCodez/Functions/BCTreeCode_USFIANumber_Function.R")
 
 # Function
 calculate_tree_volume <- function(

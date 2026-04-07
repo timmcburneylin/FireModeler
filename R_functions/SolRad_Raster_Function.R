@@ -2,7 +2,7 @@
 
 #Raster version fo the solarradiation function
 #load packages
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(terra)
 library(lubridate)
 
 

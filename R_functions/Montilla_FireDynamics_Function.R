@@ -7,29 +7,29 @@
 #Uses equations from several submodels:
 
 #Load packages
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("sp", quietly = TRUE)) library(sp)
-if (requireNamespace("sf", quietly = TRUE)) library(sf)
+library(raster)
+library(sp)
+library(sf)
 library(dplyr)
 library(matrixStats)
 library(truncnorm)
 library(cffdrs)
 library(gganimate)
 library(ggplot2)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(terra)
 library(gifski)
 
 #library(gifski)
 #install.packages("gifski")
 
 #source functions
-source_fun("FFMC_sa_Raster_Function.R")
-source_fun("FMC_Raster_Function.R")
-source_fun("fueltypes_crosswalkFBP_Raster_function.R")
-source_fun("sfc_raster_CANFBP_function.R")
+source("Z:/Scripts/FronteraCodez/Functions/FFMC_sa_Raster_Function.R")
+source("Z:/Scripts/FronteraCodez/Functions/FMC_Raster_Function.R")
+source("Z:/Scripts/FronteraCodez/Functions/fueltypes_crosswalkFBP_Raster_function.R")
+source("Z:/Scripts/FronteraCodez/Functions/sfc_raster_CANFBP_function.R")
 
 #Test Inputs:
-path <- root
+path<-"Z:/Projects/BC_BP3/Modelling/Unit Directories/Unit14/FireDynamics/"
 
 #load files
 ft<-rast(paste0(path,"FT.tif"))

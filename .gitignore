@@ -42,3 +42,10 @@ projects/*/data/raw/
 *.log
 tmp/
 temp/
+
+# Oversized GIS template files kept outside Git
+templates/BEC_Zones_OLD.*
+
+# Large fire-dynamics binary assets kept outside Git
+R_functions/Montilla_FireDynamics.zip
+R_functions/Montilla_FireDynamics/

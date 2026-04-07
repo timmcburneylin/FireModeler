@@ -1,66 +1,48 @@
-step2 <- function(cfg, root) {
-cat("Running Step 2: FuelCalc To FireModel\n")
+#Running fuelcalc processing to setup Fire Modeling
+#this script processes data and sets up weather for modeling
 
-`%||%` <- function(a, b) {
-  if (is.null(a) || length(a) == 0) return(b)
-  if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
-  a
-}
-
-step_cfg <- cfg$fuelcalc_to_firemodel %||% list()
-template_path <- function(name) file.path(cfg$runtime$templates_dir %||% file.path(root, "templates"), name)
+#CALL CONFIG
+#TESING WITH ROOT AND PROJECT NAME
+root="Z:/Scripts/FronteraCodez/Modeling Templates/Modeling Hub/"
+project_name="PROJECT"
 
 #Libraries Loading:
+library(plyr)
 library(dplyr)
 library(sf)
 library(terra)
-library(ggplot2)
-library(cffdrs)
-library(reshape2)
-library(tidyr)
-library(glue)
-library(ggdist)
+library(viridis)
+library(hrbrthemes)
+library(ggtext)
+library(patchwork)
 
-has_openair <- requireNamespace("openair", quietly = TRUE)
-
-project_name <- cfg$project_name %||% ""
-if (!nzchar(project_name)) stop("config project_name is required for FuelCalc To FireModel")
-name <- project_name
-project <- name
+name=project_name
+project=name
 
 #File Paths:
-path <- cfg$runtime$raw_dir
+#root<-normalizePath(getwd())
+path = file.path(root,"projects",name,"data","raw")
 
 # Prefix for file paths
-snap_prefix <- "/SNAP/"
-FWI_prefix <- "/Weather/"
-Fuel_prefix <- "/FireBehavior/Inputs/"
-cath_prefix <- "/Cut Specs for run/"
-Fire_out <- "/FireBehavior/Outputs/"
-s_s_prefix <- "/Stand_StockTables/"
-out_slash <- paste0(path, "/FuelCalcBC/Outputs/Slash/")
-out_fuelcalc <- paste0(path,"/FuelCalcBC/Outputs/")
-fuelcalc <- paste0(path,"/FuelCalcBC/")
-in_weather <- "/Weather/"
-out_weather <- "/Weather/"
-out_residuals <- paste0(path, "/FuelCalcBC/Outputs/Slash/Residuals/")
-results <- "/Outputs/"
+snap_prefix = "/SNAP/"
+FWI_prefix = "/Weather/"
+Fuel_prefix = "/FireBehavior/Inputs/"
+cath_prefix = "/Cut Specs for run/"
+Fire_out="/FireBehavior/Outputs/"
+s_s_prefix = "/Stand_StockTables/"
+out_slash = paste0(path, "/FuelCalcBC/Outputs/Slash/")
+out_fuelcalc = paste0(path,"/FuelCalcBC/Outputs/")
+fuelcalc = paste0(path,"/FuelCalcBC/")
+out_weather = paste0("/Weather/")
+out_residuals =paste0(path, "/FuelCalcBC/Outputs/Slash/Residuals/")
+results = "/Outputs/"
 path_fcp <- paste0(path,"/FuelCalcBC/")
 
-dir.create(file.path(path, "Weather", "raw"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "Weather", "processed"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "Weather", "WindRoses"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "Weather", "DangerDays"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "Weather", "WeatherConditions"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "Weather", "WeatherLists"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "FireBehavior", "Inputs"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(path, "FireBehavior", "Outputs"), recursive = TRUE, showWarnings = FALSE)
-
 # Load in SNAP summary files
-Snap_OS <- read.csv(paste0(path,snap_prefix,project,"_OS.csv"))
-Snap_US <- read.csv(paste0(path,snap_prefix,project,"_US.csv"))
-Snap_EX <- read.csv(paste0(path,snap_prefix,project,"_EXTRA.csv"))
-Snap_fuels <- read.csv(paste0(path,snap_prefix,project,"_FUELS.csv"))
+Snap_OS = read.csv(paste0(path,snap_prefix,project,"_OS.csv"))
+Snap_US = read.csv(paste0(path,snap_prefix,project,"_US.csv"))
+Snap_EX= read.csv(paste0(path,snap_prefix,project,"_EXTRA.csv"))
+Snap_fuels= read.csv(paste0(path,snap_prefix,project,"_FUELS.csv"))
 
 
 #Functions:
@@ -78,14 +60,14 @@ pct_extreme <- function(x, var_name) {
 
 #UI Inputs(Modifiable):------------------------------------------
 #What weather station data are you uploading: Either EC (Environment Canada) or MOF (Ministry of Forests)
-#Go to this link: https://services.pacificclimate.org/met-data-portal-pcds/app/ and choose the closest
+#Go to this link: https://services.pacificclimate.org/met-data-portal-pcds/app/ and choose the closest 
 #Environment Canada Raw (EC_Raw) and Ministry of Forestry (FLNRO-WMB) Station
-WthrType <- as.character(step_cfg$weather_type %||% "MOF") #dropdown #What weather station type is this? "MOF" or "EC"
-WthrName <- as.character(step_cfg$weather_name %||% "MERRITT 2 HUB") #userinput #What do you want your station name to be?
-WthrCode <- as.numeric(step_cfg$weather_code %||% 1399) #userinput #What is the Station Code (Native ID) from PCDS?
-WthrLat <- as.numeric(step_cfg$weather_lat %||% 50.121389) #userinput #What is the station Latitude?
-WthrLong <- as.numeric(step_cfg$weather_long %||% -120.744167) #userinput What is the station Longitude?
-DangerRegion <- as.numeric(step_cfg$danger_region %||% 3) #dropdown #What is the Wildfire Danger Region? options 1 2 or 3
+WthrType="MOF" #dropdown #What weather station type is this? "MOF" or "EC"
+WthrName="MERRITT 2 HUB" #userinput #What do you want your station name to be?
+WthrCode=1399 #userinput #What is the Station Code (Native ID) from PCDS?
+WthrLat=50.121389 #userinput #What is the station Latitude?
+WthrLong= -120.744167 #userinput What is the station Longitude?
+DangerRegion= 3 #dropdown #What is the Wildfire Danger Region? options 1 2 or 3
 
 #PLOT DISPLAY:
 #-Wind Rose: paste0(path,in_weather,"WindRoses/", WthrName, "_WindRoses.jpg")
@@ -110,14 +92,14 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
     write.csv(final_data,paste0(path,in_weather,"/raw/",WthrName,".csv"),row.names = FALSE)
     
     #Extract ecodivision
-    ECODIV<-st_read(template_path("ERC_ECODIV_polygon.shp"))
+    ECODIV<-st_read(file.path(root,"projects",project,"data","raw","templates","ERC_ECODIV_polygon.shp"))
     stn_pnt <- st_sfc(st_point(c(WthrLong, WthrLat)), crs = 4326)
     stn_pnt <- st_transform(stn_pnt, crs = 3005)  
     result <- st_intersection(ECODIV, stn_pnt)
     Ecodivision <- result$CDVSNNM
     
     #Extract Weather zone and ndt zone
-    BECOLD<-st_read(template_path("BEC_Zones_OLD.shp"))
+    BECOLD<-st_read(file.path(root,"projects",project,"data","raw","templates","BEC_Zones_OLD.shp"))
     stn_pnt <- st_sfc(st_point(c(WthrLong, WthrLat)), crs = 4326)
     stn_pnt <- st_transform(stn_pnt, crs = 3005)  
     result <- st_intersection(BECOLD, stn_pnt)
@@ -151,14 +133,14 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
     write.csv(final_data,paste0(path,in_weather,"/raw/",WthrName,".csv"),row.names = FALSE)
     
     #Extract ecodivision
-    ECODIV<-st_read(template_path("ERC_ECODIV_polygon.shp"))
+    ECODIV<-st_read(file.path(root,"projects",project,"data","raw","templates","ERC_ECODIV_polygon.shp"))
     stn_pnt <- st_sfc(st_point(c(WthrLong, WthrLat)), crs = 4326)
     stn_pnt <- st_transform(stn_pnt, crs = 3005)  
     result <- st_intersection(ECODIV, stn_pnt)
     Ecodivision <- result$CDVSNNM
     
     #Extract Weather zone and ndt zone
-    BECOLD<-st_read(template_path("BEC_Zones_OLD.shp"))
+    BECOLD<-st_read(file.path(root,"projects",project,"data","raw","templates","BEC_Zones_OLD.shp"))
     stn_pnt <- st_sfc(st_point(c(WthrLong, WthrLat)), crs = 4326)
     stn_pnt <- st_transform(stn_pnt, crs = 3005)  
     result <- st_intersection(BECOLD, stn_pnt)
@@ -205,14 +187,14 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
     csv2$precipitation <- csv2$precipitation %>% 
     replace(. == "None" | is.na(.), 0)  
     csv2$precipitation<- as.numeric(csv2$precipitation)
-    prec = csv2 |> dplyr::group_by(weather_date) |> dplyr::summarize(prec = sum(precipitation, na.rm = TRUE))
+    prec = ddply(csv2, .(weather_date), summarize, prec = sum(precipitation,na.rm = T))
     #Pull only Noon Data: IMPORTANT!
     csv2 = csv2[csv2$Hour == 23,]
     
   }else{
     csv2$precipitation = csv2$precipitation %>% replace(is.na(.),0)
     csv2$precipitation<- as.numeric(csv2$precipitation)
-    prec = csv2 |> dplyr::group_by(weather_date) |> dplyr::summarize(prec = sum(precipitation, na.rm = TRUE))
+    prec = ddply(csv2, .(weather_date), summarize, prec = sum(precipitation,na.rm = T))
     #Pull only Noon Data: IMPORTANT!
     csv2 = csv2[csv2$Hour == 12,]
     
@@ -444,26 +426,22 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   
   # Specify the file path for saving the JPEG image
   output_file <- paste0(path,in_weather,"WindRoses/", Station_name, "_WindRoses.jpg")
-
-  if (has_openair) {
-    # Start plotting
-    jpeg(output_file, width = 1000, height = 750)
-    # Call plot.new() to start a new plot
-    plot.new()
-    openair::pollutionRose(final[which(final$mon %in% Months), ],
-                  pollutant = "ws", type = "MonthAbb",
-                  breaks = c(0, 1, 2, 5, 10, 15, 20, 25, 30),
-                  key.footer = "(km per hr)", key.position = "right", annotate=TRUE, par.settings = list(fontsize = list(text = 24)), 
-                  border = "black",
-                  cols = "jet")
-    # Add title
-    title(main = title_text, line = 2.5, cex.main = 2.0)
-    
-    # End plotting
-    dev.off()
-  } else {
-    warning("Package 'openair' is not installed; skipping Wind Rose plot generation.")
-  }
+  
+  # Start plotting
+  jpeg(output_file, width = 1000, height = 750)
+  # Call plot.new() to start a new plot
+  plot.new()
+  pollutionRose(final[which(final$mon %in% Months), ],
+                pollutant = "ws", type = "MonthAbb",
+                breaks = c(0, 1, 2, 5, 10, 15, 20, 25, 30),
+                key.footer = "(km per hr)", key.position = "right", annotate=TRUE, par.settings = list(fontsize = list(text = 24)), 
+                border = "black",
+                cols = "jet")  # Add this line
+  # Add title
+  title(main = title_text, line = 2.5, cex.main = 2.0)
+  
+  # End plotting
+  dev.off()
 #-----------------------------------------------------------------------------
   #Danger Days
   Station_label<-paste0(WthrName,"(",WthrType,")")
@@ -567,7 +545,7 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
       year = unique(csv1$YR)[i]
       temp = csv1[which(csv1$YR == unique(csv1$YR)[i]),]
       
-      count_mnth <- temp |> dplyr::group_by(MON) |> dplyr::summarize(freq = n_distinct(OBJECTID))
+      count_mnth = ddply(temp, .(MON), summarize, freq = length(unique((OBJECTID))))
       
       count_mnth$YR = rep(year,NROW(count_mnth))
       
@@ -585,7 +563,7 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
       year = unique(csv2$YR)[i]
       temp = csv2[which(csv2$YR == unique(csv2$YR)[i]),]
       
-      count_mnth <- temp |> dplyr::group_by(MON) |> dplyr::summarize(freq = n_distinct(OBJECTID))
+      count_mnth = ddply(temp, .(MON), summarize, freq = length(unique((OBJECTID))))
       
       count_mnth$YR = rep(year,NROW(count_mnth))
       
@@ -599,10 +577,10 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   
   # Calculate statistics - only if data exists
   if(nrow(blank) > 0) {
-    aveM    <- blank |> dplyr::group_by(MON) |> dplyr::summarize(avecnt   = mean(freq,              na.rm = TRUE))
-    sdM     <- blank |> dplyr::group_by(MON) |> dplyr::summarize(sdcnt    = sd(freq,                na.rm = TRUE))
-    pcntl_M <- blank |> dplyr::group_by(MON) |> dplyr::summarize(pcntlcnt = quantile(freq, 0.9,    na.rm = TRUE))
-    freq_m  <- blank |> dplyr::group_by(MON) |> dplyr::summarize(freq     = sum(freq,               na.rm = TRUE))
+    aveM = ddply(blank, .(MON), summarize, avecnt = mean(freq))
+    sdM = ddply(blank, .(MON), summarize, sdcnt = sd(freq))
+    pcntl_M = ddply(blank, .(MON), summarize, pcntlcnt = quantile(freq,c(.9)))
+    freq_m = ddply(blank, .(MON), summarize, freq = sum(freq))
     NN = 30*length(unique(csv1$YR))
     xtreme_mnth_data = cbind(freq_m,aveM$avecnt,sdM$sdcnt,pcntl_M$pcntlcnt,NN)
     xtreme_mnth_data$lower = xtreme_mnth_data$`aveM$avecnt` - xtreme_mnth_data$`sdM$sdcnt` /sqrt(xtreme_mnth_data$NN)
@@ -616,10 +594,10 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   }
   
   if(nrow(blank2) > 0) {
-    aveM2    <- blank2 |> dplyr::group_by(MON) |> dplyr::summarize(avecnt   = mean(freq,         na.rm = TRUE))
-    sdM2     <- blank2 |> dplyr::group_by(MON) |> dplyr::summarize(sdcnt    = sd(freq,           na.rm = TRUE))
-    pcntl_M2 <- blank2 |> dplyr::group_by(MON) |> dplyr::summarize(pcntlcnt = quantile(freq, 0.9, na.rm = TRUE))
-    freq_m2  <- blank2 |> dplyr::group_by(MON) |> dplyr::summarize(freq     = sum(freq,          na.rm = TRUE))
+    aveM2 = ddply(blank2, .(MON), summarize, avecnt = mean(freq))
+    sdM2 = ddply(blank2, .(MON), summarize, sdcnt = sd(freq))
+    pcntl_M2 = ddply(blank2, .(MON), summarize, pcntlcnt = quantile(freq,c(.9)))
+    freq_m2 = ddply(blank2, .(MON), summarize, freq = sum(freq))
     NN2 = 30*length(unique(csv2$YR))
     high_mnth_data = cbind(freq_m2,aveM2$avecnt,sdM2$sdcnt,pcntl_M2$pcntlcnt,NN2)
     high_mnth_data$lower = high_mnth_data$`aveM2$avecnt` - high_mnth_data$`sdM2$sdcnt` /sqrt(high_mnth_data$NN2)
@@ -785,7 +763,7 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   weather_stations<-list.files(paste0(path,out_weather,"processed/"),pattern = "*_Daily_FWI.csv", full.names = TRUE)
   Station_names <- weather_stations %>%
     basename() %>%               # Extract just the file names
-    sub("_Daily_FWI\\.csv$", "", .)
+    str_remove("_Daily_FWI.csv")
   
   fire_weather_lists<-list()
   dated_data<-list()
@@ -903,8 +881,8 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   daily_weather<- read.csv(paste0(path,in_weather,"WeatherLists/","allstations_90th_FWList_dates_summer.csv"))
   
   #get pertinent info
-  min_yr <- as.integer(format(as.Date(min(daily_weather$TIME)), "%Y"))
-  max_yr <- as.integer(format(as.Date(max(daily_weather$TIME)), "%Y"))
+  min_yr<-year(min(daily_weather$TIME))
+  max_yr<-year(max(daily_weather$TIME))
   LAT<-max(daily_weather$LAT)
   LONG<-max(daily_weather$LONG)
   
@@ -1058,13 +1036,13 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
       panel.grid.minor.x = element_line(linewidth = 0.08, color = "grey75"),
       #plot.title = element_text(family = "Fira Sans SemiBold"),
       plot.title.position = "plot",
-      plot.title = element_text(
+      plot.title = element_textbox_simple(
         #margin = margin(t = 4, b = 16), 
         size = 12),
-      plot.subtitle = element_text(
+      plot.subtitle = element_textbox_simple(
         #margin = margin(t = 4, b = 16), 
         size = 7),
-      plot.caption = element_text(
+      plot.caption = element_textbox_simple(
         #margin = margin(t = 12), 
         size = 7
       ),
@@ -1124,12 +1102,8 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   #decide on legend 1 ior 2
   #for 1
   #Full_p<-p + inset_element(p_legend1, l = 0.6, r = 1,  t = 1, b = 0.5, clip = FALSE)
-  #
-  # The original script used patchwork::inset_element() to place a custom
-  # legend beneath the figure. We avoid that dependency here and save the core
-  # weather-distribution plot directly so Step 2 can run without patchwork.
-  p <- p + theme(plot.margin = margin(6, 6, 20, 6))
-  Full_p <- p
+  p <- p + theme(plot.margin = margin(6, 6, 40, 6))
+  Full_p <- p + inset_element(p_legend, l = 0.25, r = 1, t = -0.15, b = -0.25, clip = FALSE)
   Full_p
   
   ggsave(paste0(path, in_weather, "WeatherConditions/", station_name, "_WeatherDistributions.jpg"),
@@ -1141,21 +1115,9 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   
   
 #--------------------------------------------------------------------  
-  step_dir <- file.path(cfg$runtime$intermediate_dir, "step2_fuelcalc")
-  dir.create(step_dir, recursive = TRUE, showWarnings = FALSE)
-  summary <- list(
-    project_name = project_name,
-    raw_dir = cfg$runtime$raw_dir,
-    weather_type = WthrType,
-    weather_name = WthrName,
-    weather_code = WthrCode,
-    weather_lat = WthrLat,
-    weather_long = WthrLong,
-    danger_region = DangerRegion,
-    wind_rose = file.path(path, "Weather", "WindRoses", paste0(WthrName, "_WindRoses.jpg")),
-    danger_days = file.path(path, "Weather", "DangerDays", paste0(WthrName, "_DangerDays.jpg")),
-    weather_conditions = file.path(path, "Weather", "WeatherConditions", paste0(WthrName, "_WeatherDistributions.jpg"))
-  )
-  saveRDS(summary, file.path(step_dir, "fuelcalc_to_firemodel_outputs.rds"))
-  jsonlite::write_json(summary, file.path(step_dir, "fuelcalc_to_firemodel_summary.json"), pretty = TRUE, auto_unbox = TRUE, null = "null")
-}
+  
+  
+  
+  
+  
+  

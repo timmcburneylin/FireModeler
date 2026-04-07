@@ -2,11 +2,11 @@
 
   #Load Libraries:
 library(gdistance)
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("sf", quietly = TRUE)) library(sf)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(raster)
+library(sf)
+library(terra)
 #Load Functions:
-source_fun("Transition_Function_Modified.R")
+source("Z:/Scripts/FronteraCodez/Functions/Transition_Function_Modified.R")
 
 
 #setup function:

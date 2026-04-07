@@ -1713,7 +1713,7 @@ build_report_Mod<- function(study.area, my.fires,my.dated.fires,meteo.data,activ
   
   by_use_wind_rose <- ceiling(max(for_wind_rose_0ha_meteo_fires_inside$WS))/6
   
-  source_fun("PlotWindRose_MTTFireCal.R")
+  source("Z:/Scripts/FronteraCodez/Functions/PlotWindRose_MTTFireCal.R")
   p0 <- plot_windrose(spd = for_wind_rose_0ha_meteo_fires_inside$WS,
                       dir = for_wind_rose_0ha_meteo_fires_inside$WD,
                       spdseq = round(seq(from=0, to=ceiling(max(for_wind_rose_0ha_meteo_fires_inside$WS)),by=by_use_wind_rose),1))

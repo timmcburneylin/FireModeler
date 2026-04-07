@@ -9,22 +9,19 @@
 
 #Load functions:
 #install.packages(c("rootSolve"))
-if (requireNamespace("Rothermel", quietly = TRUE)) library(Rothermel)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
-if (requireNamespace("plantecophys", quietly = TRUE)) library(plantecophys)
+library(firebehavioR)
 library(dplyr)
 library(stats)
-if (requireNamespace("rootSolve", quietly = TRUE)) library(rootSolve)
 library(zoo)
 library(cubature)
 
 
-source_fun("Residence_Time_Function_Nelson2003b.R")
-source_fun("rothermel_function_mod.R")
-source_fun("CFC_Groot_Function.R")
-source_fun("FMC_Function.R")
-source_fun("SFC_Function.R")
-source_fun("CFIM_SpatialLocation_Function.R")
+source(file.path(root, "R_functions", "Residence_Time_Function_Nelson2003b.R"))
+source(file.path(root, "R_functions", "rothermel_function_mod.R"))
+source(file.path(root, "R_functions", "CFC_Groot_Function.R"))
+source(file.path(root, "R_functions", "FMC_Function.R"))
+source(file.path(root, "R_functions", "SFC_Function.R"))
+source(file.path(root, "R_functions", "CFIM_SpatialLocation_Function.R"))
 
 
 #Inputs are a series of data frames describing fuels topography, stand structure, and weather. 

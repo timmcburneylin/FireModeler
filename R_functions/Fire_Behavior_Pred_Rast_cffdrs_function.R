@@ -1,9 +1,9 @@
 #modified FBP Raster function  
-source_fun("fire_behavior_prediction_function.R")
-source_fun("Initial_Spread_Index.R")
+source(file.path(root, "R_functions", "fire_behavior_prediction_function.R"))
+source(file.path(root, "R_functions", "Initial_Spread_Index.R"))
 library(data.table)
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(raster)
+library(terra)
 
 #
 fbpRaster_mod <- function(

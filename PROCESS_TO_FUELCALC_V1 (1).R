@@ -1,130 +1,84 @@
-step1 <- function(cfg, root) {
-cat("Running Step 1: Process To FuelCalc\n")
-
-`%||%` <- function(a, b) {
-  if (is.null(a) || length(a) == 0) return(b)
-  if (is.atomic(a) && length(a) == 1 && is.na(a)) return(b)
-  a
-}
-
-process_cfg <- cfg$process_to_fuelcalc %||% list()
-target_env <- environment()
-
-as_char_vec <- function(x, default) as.character(unlist(x %||% default, use.names = FALSE))
-as_num_vec <- function(x, default) as.numeric(unlist(x %||% default, use.names = FALSE))
-as_logical_vec <- function(x, default) {
-  vals <- unlist(x %||% default, use.names = FALSE)
-  if (is.logical(vals)) return(as.logical(vals))
-  tolower(as.character(vals)) %in% c("true", "t", "1", "yes", "y")
-}
-find_template <- function(candidates) {
-  template_root <- cfg$runtime$templates_dir %||% file.path(root, "templates")
-  for (nm in candidates) {
-    p <- file.path(template_root, nm)
-    if (file.exists(p)) return(p)
-  }
-  stop("Missing template file under ", template_root, ". Tried: ", paste(candidates, collapse = ", "))
-}
-source_local_function <- function(fname) {
-  f <- file.path(root, "R_functions", fname)
-  if (!file.exists(f)) stop("Missing R_functions file: ", f)
-  source(f, local = target_env)
-}
-source_optional_function <- function(fname) {
-  f <- file.path(root, "R_functions", fname)
-  if (!file.exists(f)) {
-    warning("Optional R_functions file missing: ", f)
-    return(invisible(FALSE))
-  }
-  tryCatch(
-    {
-      source(f, local = target_env)
-      TRUE
-    },
-    error = function(e) {
-      warning("Optional function source failed for ", fname, ": ", conditionMessage(e))
-      FALSE
-    }
-  )
-}
-
 #CALL CONFIG
-project_name <- cfg$project_name %||% ""
-if (!nzchar(project_name)) stop("config project_name is required for Process To FuelCalc")
 
-name <- project_name
-project <- name
+#TESING WITH ROOT AND PROJECT NAME
+root="Z:/Scripts/FronteraCodez/Modeling Templates/Modeling Hub/"
+project_name="PROJECT"
+
+
+name=project_name
+project=name
 
 #Libraries Loading
+library(plyr)
 library(dplyr)
 
 #UI Inputs(Modifiable):-----------------------------------
 
 #Are you cutting: TRUE or FALSE
-cutting <- isTRUE(process_cfg$cutting %||% TRUE)
+cutting<- TRUE 
 
 #What are your treatment names?
-tr_names <- as_char_vec(process_cfg$tr_names, c("A","B","C"))
+tr_names <- c("A","B","C")
 
 #What is the density you'd like to thin to in TPH? 1 input per stratum
-thinning_target_order <- as_num_vec(process_cfg$thinning_target_order, c(593,647,683))
+thinning_target_order<-c(593,647,683) 
 #What height are you pruning to in meters? 1 input per stratum
-prune <- as_num_vec(process_cfg$prune, c(2,2,2))
+prune<-c(2,2,2) 
 #Are you burning: TRUE or FALSE 1 input per stratum
-BurningFlags <- as_logical_vec(process_cfg$burning_flags, c(FALSE,FALSE,FALSE))
+BurningFlags<-c(FALSE,FALSE,FALSE) 
 #Are you thinning: TRUE or FALSE 1 input per stratum
-ThinFlags <- as_logical_vec(process_cfg$thin_flags, c(TRUE,TRUE,TRUE))
+ThinFlags<-c(TRUE,TRUE,TRUE)
 #Are you pruning: TRUE or FALSE 1 input per stratum
-PruneFlags <- as_logical_vec(process_cfg$prune_flags, c(TRUE,TRUE,TRUE))
+PruneFlags<-c(TRUE,TRUE,TRUE) 
 
-#Emssion factor:
+#Emssion factor: 
 #either 4:WesternForestWF, 3:WesternForestRX, 2:BorealForest, 6:Grassland, 5:Shrubland
 #Notes if you are doing a burn use 3, if you are planning for fire use 4, if you are in boreal use 2
-EmissionFactor <- as_num_vec(process_cfg$emission_factor, c(4,4,4))
+EmissionFactor<-c(4,4,4)
 
-#Type of surface fuel load:
-#Either (Grass)=grass-dominated,(Chapparral) = chapparral and shrubfeilds,
+#Type of surface fuel load: 
+#Either (Grass)=grass-dominated,(Chapparral) = chapparral and shrubfeilds, 
 #(TimberLitter) = timber litter, or (Slash)= logging slash
-surf_fuel <- as_char_vec(process_cfg$surf_fuel, c("TimberLitter","TimberLitter","TimberLitter"))
+surf_fuel<-c("TimberLitter","TimberLitter","TimberLitter")
 
-#Bole Char Height:
+#Bole Char Height: 
 #Notes:if you are burning or planning for fire what flame lengths are you okay with in meters
 #2 meters based on  3m pruning
-BoleCharHeight <- as_num_vec(process_cfg$bole_char_height, c(2,2,2))
+BoleCharHeight=c(2,2,2)
 
 #What Moisture level are your 10hr fuels?: Either VeryDry (6%), Dry (10%), Moderate (16%), or Wet(22%)
-moist <- as.character(process_cfg$moist %||% "VeryDry")
+moist<-"VeryDry"
 
 #What Climate Type is this?: Either  Humid or Arid
-climate <- as_char_vec(process_cfg$climate, c("Arid","Arid","Arid"))
+climate<-c("Arid","Arid","Arid")
 
 #If you are Burning:-----------------
 
 #What Moisture level are your 10hr fuels?: Either VeryDry (6%), Dry (10%), Moderate (16%), or Wet(22%)
-moistRegimes <- as_char_vec(process_cfg$moist_regimes, c("VeryDry","VeryDry","VeryDry"))
+moistRegimes<-c("VeryDry","VeryDry","VeryDry")
 
-#What season are you burning?: Either Spring, Summer, Fall, Winter
-Season <- as_char_vec(process_cfg$season, c("Summer","Summer","Summer"))
+#What season are you burning?: Either Spring, Summer, Fall, Winter  
+Season=c("Summer","Summer","Summer")
 
 #-------------------------------------------------------------------
 
 #Templates and Functions:
-FUELCALC_BC_TEMPLATE <- readLines(find_template(c("FuelCalcBC_Template_FCP.fcp", "FuelCalcBC_Template_FCP.FCP")), warn = FALSE)
-ffi_temp <- readLines(find_template(c("FuelCalc_FFI_Template.ffi", "FuelCalc_FFI_Template.FFI")), warn = FALSE)
-treatment_temp <- read.csv(find_template(c("Treatment_Template_FuelCalc.csv")))
-tre_temp <- readLines(find_template(c("FuelCalc_TRE_Template.tre")), warn = FALSE)
-FUELCALC_US_TEMPLATE <- readLines(find_template(c("FuelCalc_Template_FCP.fcp", "FuelCalc_Template_FCP.FCP")), warn = FALSE)
+FUELCALC_BC_TEMPLATE <- readLines(file.path(root,"projects",project,"data","raw","templates","FuelCalcBC_Template_FCP.fcp"))
+ffi_temp<- readLines(file.path(root,"projects",project,"data","raw","templates","FuelCalc_FFI_Template.ffi"))
+treatment_temp<-read.csv(file.path(root,"projects",project,"data","raw","templates","Treatment_Template_FuelCalc.csv"))
+tre_temp<-readLines(file.path(root,"projects",project,"data","raw","templates","FuelCalc_TRE_Template.tre"))
+FUELCALC_US_TEMPLATE <- readLines(file.path(root,"projects",project,"data","raw","templates","FuelCalc_Template_FCP.fcp"))
 
-source_local_function("fueltypes_crosswalk_function.R")
-source_optional_function("Crown_Area_Function.R")
-source_optional_function("BC_TREECODES_USCodes_function.R")
-source_optional_function("TreeVolume_Calculator_Function_NVEL.R")
+source(file.path(root,"projects",project,"data","raw","functions","fueltypes_crosswalk_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","Crown_Area_Function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","BC_TREECODES_USCodes_function.R"))
+source(file.path(root,"projects",project,"data","raw","functions","TreeVolume_Calculator_Function_NVEL.R"))
 
 
 #-------------------
 
 #Load Project Name
-name <- project_name
+name<-project_name
 
 #Manual Functions-------------------------------------------
 #Function to extract metric value
@@ -535,17 +489,17 @@ finalbcd2[finalbcd == 99] = NA
 
 # Calculate mean values for 1/10/100/1000 hr fuels for each stratum. Put values into their own
 # respective data frames.
-ave_duff      <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(duff   = mean(DufMos,                              na.rm = TRUE))
-ave_grass     <- Snap_fuels |> dplyr::group_by(Stratum) |> dplyr::summarize(grass  = mean(Avg.Grass.Loading..kg.m2.,           na.rm = TRUE))
-ave_shrub     <- Snap_fuels |> dplyr::group_by(Stratum) |> dplyr::summarize(shrub  = mean(Avg.Shrub.Loading..kg.m2.,           na.rm = TRUE))
-ave_lit       <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(lit    = mean(LitLic,                              na.rm = TRUE))
-ave_1hr       <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(hr1    = mean(F1,                                  na.rm = TRUE))
-ave_10hr      <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(hr10   = mean(F2,                                  na.rm = TRUE))
-ave_100hr     <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(hr100  = mean(F4,                                  na.rm = TRUE))
-ave_1000hr    <- finalbcd2  |> dplyr::group_by(Strat)   |> dplyr::summarize(hr1000 = mean(F5,                                  na.rm = TRUE))
-ave_CWD       <- Snap_fuels |> dplyr::group_by(Stratum) |> dplyr::summarize(CWD    = mean(CWD.fuels...20.0cm...kg.m2.,         na.rm = TRUE))
-ave_LWD       <- Snap_fuels |> dplyr::group_by(Stratum) |> dplyr::summarize(LWD    = mean(LWD.fuels..7.0.20.0cm...kg.m2.,     na.rm = TRUE))
-ave_LWDPieces <- Snap_fuels |> dplyr::group_by(Stratum) |> dplyr::summarize(LWD    = mean(LWD.pieces,                         na.rm = TRUE))
+ave_duff = ddply(finalbcd2, .(Strat), summarize, duff = mean(DufMos,na.rm = T))
+ave_grass = ddply(Snap_fuels, .(Stratum), summarize, grass = mean(Avg.Grass.Loading..kg.m2.,na.rm = T))
+ave_shrub = ddply(Snap_fuels, .(Stratum), summarize, shrub = mean(Avg.Shrub.Loading..kg.m2.,na.rm = T))
+ave_lit = ddply(finalbcd2, .(Strat), summarize, lit = mean(LitLic,na.rm = T))
+ave_1hr = ddply(finalbcd2, .(Strat), summarize, hr1 = mean(F1,na.rm = T))
+ave_10hr = ddply(finalbcd2, .(Strat), summarize, hr10 = mean(F2,na.rm = T))
+ave_100hr = ddply(finalbcd2, .(Strat), summarize, hr100 = mean(F4,na.rm = T))
+ave_1000hr = ddply(finalbcd2, .(Strat), summarize, hr1000 = mean(F5,na.rm = T))
+ave_CWD = ddply(Snap_fuels, .(Stratum), summarize, CWD = mean(CWD.fuels...20.0cm...kg.m2.,na.rm = T))
+ave_LWD = ddply(Snap_fuels, .(Stratum), summarize, LWD = mean(LWD.fuels..7.0.20.0cm...kg.m2.,na.rm = T))
+ave_LWDPieces=ddply(Snap_fuels, .(Stratum), summarize, LWD = mean(LWD.pieces,na.rm = T))
 
 # Bind together 1/10/100/1000 hr fuels for each stratum and write out a csv
 d = cbind(ave_duff,ave_grass$grass,ave_shrub$shrub,ave_lit$lit,ave_1hr$hr1,ave_10hr$hr10,ave_100hr$hr100,ave_1000hr$hr1000,ave_LWD$LWD,ave_CWD$CWD,ave_LWDPieces$LWD)
@@ -1383,8 +1337,6 @@ if(!cutting){
       # Add a new column named after the species
       cut_spec[[species]] <- 0  # Fill with NA or default values
     }
-    dropoff_dir <- file.path(path, "Dropoff")
-    dir.create(dropoff_dir, recursive = TRUE, showWarnings = FALSE)
     write.csv(cut_spec,paste0(path, "/Dropoff/cuttingSpecs_",tr,".csv"),row.names = FALSE)
     #
     if(!dir.exists(paste0(path, s_s_prefix,tr,"_tables/"))){
@@ -1896,7 +1848,7 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
       "cd /d ", gsub("/", "\\\\", out_folder), "\n",
       "fc_gui ", ffi_file, " ", tre_file, " ", treatment_file, " ", 
       project_file, " ", output_file, " ", error_file, "\n",
-      "exit /b %errorlevel%"
+      "pause"
     )
     
     # Write batch file
@@ -1910,23 +1862,6 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
   #End of Code
   
 #Run FuelCalc!!!!
-  step_dir <- file.path(cfg$runtime$intermediate_dir, "step1_process_to_fuelcalc")
-  dir.create(step_dir, recursive = TRUE, showWarnings = FALSE)
-  summary <- list(
-    project_name = project_name,
-    project_root = cfg$runtime$project_root,
-    raw_dir = cfg$runtime$raw_dir,
-    cutting = cutting,
-    strata = as.character(unique(Snap_EX$Stratum)),
-    strata_count = length(unique(Snap_EX$Stratum)),
-    treatment_names = as.character(tr_names),
-    fuelcalc_bc_bcd_files = list.files(file.path(path, "FuelCalcBC"), pattern = "\\.bcd$", full.names = TRUE),
-    fuelcalc_bc_fcp_files = list.files(file.path(path, "FuelCalcBC"), pattern = "\\.fcp$", full.names = TRUE),
-    fuelcalc_bc_tre_files = list.files(file.path(path, "FuelCalcBC"), pattern = "\\.tre$", full.names = TRUE),
-    fuelcalc_ffi_files = list.files(file.path(path, "FuelCalc", "Outputs"), pattern = "\\.ffi$", recursive = TRUE, full.names = TRUE),
-    fuelcalc_treatment_files = list.files(file.path(path, "FuelCalc", "Outputs"), pattern = "_TreatmentFile\\.csv$", recursive = TRUE, full.names = TRUE),
-    fuelcalc_batch_files = list.files(file.path(path, "FuelCalc", "Outputs"), pattern = "^Run_FuelCalc_.*\\.bat$", recursive = TRUE, full.names = TRUE)
-  )
-  saveRDS(summary, file.path(step_dir, "process_to_fuelcalc_outputs.rds"))
-  jsonlite::write_json(summary, file.path(step_dir, "process_to_fuelcalc_summary.json"), pretty = TRUE, auto_unbox = TRUE, null = "null")
-}
+
+
+

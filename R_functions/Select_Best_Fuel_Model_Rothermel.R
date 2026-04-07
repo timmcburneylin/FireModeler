@@ -88,7 +88,7 @@ if(Density == "Light"){ #Open Fuels: Grasses, Shrubs, Pine/Douglas-Fire Stands, 
       allowed_models = c("TL9","TL3")
       }
     
-}else if(Densiy == "Moderate"){ #Closed to Medium Forests:----------------------------------------------------------
+}else if(Density == "Moderate"){ #Closed to Medium Forests:----------------------------------------------------------
     
   if(ForestType %in% c("Pine","Spruce","Douglas-fire")){ #Conifer Fuels closed
       

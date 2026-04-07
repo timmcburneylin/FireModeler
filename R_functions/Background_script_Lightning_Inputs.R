@@ -1,7 +1,7 @@
 #Generateing lightining model inputs background script:
 #load packages
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(raster)
+library(terra)
 library(solrad)
 library(dplyr)
 library(geostats)

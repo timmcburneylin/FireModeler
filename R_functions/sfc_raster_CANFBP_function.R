@@ -1,5 +1,5 @@
 #surface fuel consumption form canadian fbp system
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(terra)
 sfc_raster <- function(FUELTYPE, FFMC, BUI, PC, GFL) {
   SFC <- rep(-999, length(FFMC))
   # Eqs. 9a, 9b (Wotton et. al. 2009) - Solving the lower bound of FFMC value

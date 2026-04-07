@@ -1,4 +1,4 @@
-if (requireNamespace("terra", quietly = TRUE)) library(terra)
+library(terra)
 #equation from:https://cfs.nrcan.gc.ca/pubwarehouse/pdfs/19973.pdf
 # Function to calculate ISI directly from raster inputs
 initial_spread_index_raster <- function(ffmc_raster, ws_raster, fbpMod = FALSE) {

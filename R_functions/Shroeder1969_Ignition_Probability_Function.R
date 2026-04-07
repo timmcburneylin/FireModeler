@@ -7,8 +7,8 @@
 
 #load packages
 library(dplyr)
-if (requireNamespace("raster", quietly = TRUE)) library(raster)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
+library(raster)
+library(firebehavioR)
 
 
 

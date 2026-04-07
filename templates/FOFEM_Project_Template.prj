@@ -1,0 +1,35 @@
+#Region PacificWest
+#FuelClass FFI
+#FuelCat Slash
+#LogDist Fixed
+#Season Spring
+#EmisFlame 3$-$Western$Forest$-$Rx
+#EmisSmold 7$-$Woody$RSC
+#EmisDuff 8$-$Duff$RSC
+#EmisMethod Old
+#CoverType ave_Xeto_N_::_PreBurn
+#FFI_File Z:\Projects\LIL'WAT\2020_CRI\fire$modeling\FOFEM_XetoN\xetoN.ffi
+#Moisture Dry
+#SoilType Coarse-Loamy
+#Litter   4.04 Typical 
+#1Hr   8.24 Typical
+#10Hr  15.97 Typical
+#100Hr  16.47 Typical
+#1kHr  33.00 Typical
+#Duff  39.30 Typical
+#Herb   0.00 Typical
+#Shrub   0.35 Typical
+#Foliage   0.00 Typical
+#Branch   0.00 Typical
+#Duff_Depth   3.93
+#Duff_Moist  40.00
+#Wood_Moist_10Hr   9.00
+#Wood_Moist_1kHr  10.50
+#Soil_Moisture  10.00
+#Rotten   0.00
+#Burn_Crown  75.00
+#FlameLength 
+#LenHgt 4
+#Species-1 ABBA CRNSCH 100.0 5.0 20.0  4 -1.0 -1 x -1.0 
+#Species-2 ABCO CRCABE 110.0 14.0 50.0  3 50.0  3 y -1.0 
+#ProbCutoff  1.0  2.0 0.30   -1.0 -1.0 -1.00    5.0  6.0 0.70   

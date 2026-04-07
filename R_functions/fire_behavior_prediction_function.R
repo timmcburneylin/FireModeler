@@ -1,4 +1,4 @@
-source_fun("Initial_Spread_Index.R")
+source(file.path(root, "R_functions", "Initial_Spread_Index.R"))
 #manual fire behavior prediction function
 fire_behavior_prediction_function <- function(
     input = NULL,

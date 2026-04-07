@@ -1,13 +1,11 @@
 #load packages
-if (requireNamespace("Rothermel", quietly = TRUE)) library(Rothermel)
-if (requireNamespace("plantecophys", quietly = TRUE)) library(plantecophys)
-if (requireNamespace("firebehavioR", quietly = TRUE)) library(firebehavioR)
-if (requireNamespace("geosphere", quietly = TRUE)) library(geosphere)
+library(firebehavioR)
+library(geosphere)
 library(dplyr)
 library(purrr)
 library(ggplot2)
-source_fun("Fine_Fuel_MC_SA_function.R")
-source_fun("rothermel_function_mod.R")
+source(file.path(root, "R_functions", "Fine_Fuel_MC_SA_function.R"))
+source(file.path(root, "R_functions", "rothermel_function_mod.R"))
 
 
 #Canadian_Fuel_Model <- "C-4"   # Example required input
