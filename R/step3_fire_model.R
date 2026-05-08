@@ -289,7 +289,7 @@ for(x in 1:length(treatments)){
   last_row[3:length(last_row)] <- round(as.numeric(last_row[3:length(last_row)]), 2)
   df_out<-rbind(df_tr,last_row)
   
-  write.csv(df_out,paste0(path,"/FuelCalc/Outputs/TU_",tr,"/",tr,"_StandStructure.csv"),row.names = FALSE)
+  write.csv(df_out,paste0(path,"/FuelCalc/Outputs/TU_",tr,"/TU_",tr,"_StandStructure.csv"),row.names = FALSE)
   #write.csv(fueldf,paste0(path,"/FuelCalc/Outputs/TU_",tr,"/",tr,"_FuelLoadsPost.csv"),row.names = FALSE)
   
   str_lists[[as.character(tr)]]<-df_tr
@@ -515,6 +515,10 @@ for(j in 1:length(strata)){
     OS_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_Ht<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+    desc_cols <- c("Stand.Layer", "DBH.Class")
+    pct_cols  <- names(cuttingSpecs)[grepl("\\..%$", names(cuttingSpecs))]
+    cuttingSpecs <- cuttingSpecs[, c(desc_cols, pct_cols)]
+    names(cuttingSpecs) <- gsub("\\..%$", "", names(cuttingSpecs))
     
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation
     OS_SPH<-OS_SPH %>%
@@ -686,6 +690,10 @@ for(j in 1:length(strata)){
     OS_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_Ht<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
+    desc_cols <- c("Stand.Layer", "DBH.Class")
+    pct_cols  <- names(cuttingSpecs)[grepl("\\..%$", names(cuttingSpecs))]
+    cuttingSpecs <- cuttingSpecs[, c(desc_cols, pct_cols)]
+    names(cuttingSpecs) <- gsub("\\..%$", "", names(cuttingSpecs))
     
     
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation

@@ -23,6 +23,19 @@ library(ggdist)
 
 has_openair <- requireNamespace("openair", quietly = TRUE)
 
+safe_plot_save <- function(label, expr) {
+  tryCatch(
+    {
+      force(expr)
+      TRUE
+    },
+    error = function(e) {
+      warning(paste0(label, " plot generation failed: ", conditionMessage(e)))
+      FALSE
+    }
+  )
+}
+
 project_name <- cfg$project_name %||% ""
 if (!nzchar(project_name)) stop("config project_name is required for FuelCalc To FireModel")
 name <- project_name
@@ -446,21 +459,18 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   output_file <- paste0(path,in_weather,"WindRoses/", Station_name, "_WindRoses.jpg")
 
   if (has_openair) {
-    # Start plotting
-    jpeg(output_file, width = 1000, height = 750)
-    # Call plot.new() to start a new plot
-    plot.new()
-    openair::pollutionRose(final[which(final$mon %in% Months), ],
-                  pollutant = "ws", type = "MonthAbb",
-                  breaks = c(0, 1, 2, 5, 10, 15, 20, 25, 30),
-                  key.footer = "(km per hr)", key.position = "right", annotate=TRUE, par.settings = list(fontsize = list(text = 24)), 
-                  border = "black",
-                  cols = "jet")
-    # Add title
-    title(main = title_text, line = 2.5, cex.main = 2.0)
-    
-    # End plotting
-    dev.off()
+    safe_plot_save("Wind Rose", {
+      jpeg(output_file, width = 1000, height = 750)
+      on.exit(dev.off(), add = TRUE)
+      plot.new()
+      openair::pollutionRose(final[which(final$mon %in% Months), ],
+                    pollutant = "ws", type = "MonthAbb",
+                    breaks = c(0, 1, 2, 5, 10, 15, 20, 25, 30),
+                    key.footer = "(km per hr)", key.position = "right", annotate=TRUE, par.settings = list(fontsize = list(text = 24)), 
+                    border = "black",
+                    cols = "jet")
+      title(main = title_text, line = 2.5, cex.main = 2.0)
+    })
   } else {
     warning("Package 'openair' is not installed; skipping Wind Rose plot generation.")
   }
@@ -775,7 +785,9 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
       theme(axis.text.x = element_text(angle = 45,size = 20, hjust = 1))
     
     gg_save<-paste0(path,in_weather,"DangerDays/",Station_name,"_DangerDays.jpg")
-    ggsave(gg_save,plot=final_gg)
+    safe_plot_save("Danger Days", {
+      ggsave(gg_save, plot = final_gg)
+    })
   } else {
     cat("No danger days to plot for", Station_name, "\n")
   }
@@ -1132,12 +1144,14 @@ nonConiferList <- c("Act","Acb","Ac","At","Ep","DP", "DU","Dead", "Dr")
   Full_p <- p
   Full_p
   
-  ggsave(paste0(path, in_weather, "WeatherConditions/", station_name, "_WeatherDistributions.jpg"),
-         Full_p,
-         width = 9,    # increase this for wider
-         height = 5,    # adjust height as needed
-         units = "in",
-         dpi = 300)  
+  safe_plot_save("Weather Conditions", {
+    ggsave(paste0(path, in_weather, "WeatherConditions/", station_name, "_WeatherDistributions.jpg"),
+           Full_p,
+           width = 9,    # increase this for wider
+           height = 5,    # adjust height as needed
+           units = "in",
+           dpi = 300)
+  })  
   
   
 #--------------------------------------------------------------------  

@@ -33,6 +33,8 @@ if (!nzchar(cfg$project_name)) {
 }
 
 cfg$outputs <- cfg$outputs %||% list()
+cfg$outputs$step025 <- sanitize_data_rel(cfg$outputs$step025 %||% "intermediate/step025_cuttingspecs")
+cfg$outputs$step05 <- sanitize_data_rel(cfg$outputs$step05 %||% "intermediate/step05_treatment_description")
 cfg$outputs$step1 <- sanitize_data_rel(cfg$outputs$step1 %||% "intermediate/step1_process_to_fuelcalc")
 cfg$outputs$step2 <- sanitize_data_rel(cfg$outputs$step2 %||% "intermediate/step2_fuelcalc")
 cfg$outputs$step3 <- sanitize_data_rel(cfg$outputs$step3 %||% "outputs/step3_fire_model")
@@ -65,7 +67,9 @@ dir.create(cfg$runtime$external_dir, recursive = TRUE, showWarnings = FALSE)
 cat("Project:", cfg$project_name, "\n")
 
 source(file.path(root, "R", "step0_snap_to_process.R"))
+source(file.path(root, "R", "step025_cuttingspecs.R"))
 source(file.path(root, "R", "step1_process_to_fuelcalc.R"))
+source(file.path(root, "R", "step05_treatment_description.R"))
 source(file.path(root, "R", "step2_fuelcalc.R"))
 source(file.path(root, "R", "step3_fire_model.R"))
 
@@ -78,7 +82,9 @@ if (length(step_arg) > 0) {
 
 available_steps <- list(
   step0_snap_to_process = step0,
+  step025_cuttingspecs = step025,
   step1_process_to_fuelcalc = step1,
+  step05_treatment_description = step05,
   step2_fuelcalc = step2,
   step3_fire_model = step3
 )
@@ -175,6 +181,14 @@ manifest <- list(
     outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step1_process_to_fuelcalc", "process_to_fuelcalc_outputs.rds")),
     fuelcalc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalc")),
     fuelcalcbc_dir = artifact(file.path(cfg$runtime$raw_dir, "FuelCalcBC"))
+  ),
+  step025 = list(
+    summary = artifact(file.path(cfg$runtime$intermediate_dir, "step025_cuttingspecs", "cuttingspecs_summary.json")),
+    outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step025_cuttingspecs", "cuttingspecs_outputs.rds"))
+  ),
+  step05 = list(
+    summary = artifact(file.path(cfg$runtime$intermediate_dir, "step05_treatment_description", "treatment_description_summary.json")),
+    outputs_rds = artifact(file.path(cfg$runtime$intermediate_dir, "step05_treatment_description", "treatment_description_outputs.rds"))
   ),
   step2 = list(
     summary = artifact(file.path(cfg$runtime$intermediate_dir, "step2_fuelcalc", "fuelcalc_to_firemodel_summary.json")),

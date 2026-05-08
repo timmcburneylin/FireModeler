@@ -1402,6 +1402,10 @@ for (i in 1:length(unique(Snap_EX$Stratum))) {
   inputfolder<-paste0(TR,"_tables")
   cutting_specs<-paste0(path,s_s_prefix,inputfolder,"/cuttingSpecs_",TR,".csv")
   cuts <- read.csv(cutting_specs)
+  desc_cols <- c("Stand.Layer", "DBH.Class")
+  pct_cols  <- names(cuts)[grepl("\\..%$", names(cuts))]
+  cuts <- cuts[, c(desc_cols, pct_cols)]
+  names(cuts) <- gsub("\\..%$", "", names(cuts))
   
   #decide if thinning
   Thin<-ifelse(ThinFlags[i] ==TRUE,"Yes","No")
@@ -1640,6 +1644,10 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
     inputfolder<-paste0(TR,"_tables")
     cutting_specs<-paste0(path,s_s_prefix,inputfolder,"/cuttingSpecs_",TR,".csv")
     cuts <- read.csv(cutting_specs)
+    desc_cols <- c("Stand.Layer", "DBH.Class")
+    pct_cols  <- names(cuts)[grepl("\\..%$", names(cuts))]
+    cuts <- cuts[, c(desc_cols, pct_cols)]
+    names(cuts) <- gsub("\\..%$", "", names(cuts))
     
     # Remove unwanted columns
     cuts <- cuts %>% dplyr::select(-Stand.Layer)
