@@ -72,6 +72,7 @@ dependency_packages <- c(
   "digest",
   "evaluate",
   "fansi",
+  "farver",
   "fastmap",
   "fontawesome",
   "fs",
@@ -147,11 +148,24 @@ package_loadable <- function(package) {
     suppressWarnings(require(package, character.only = TRUE, lib.loc = project_lib, quietly = TRUE))
 }
 
-packages <- unique(c(critical_packages, dependency_packages, support_packages))
+available_packages <- utils::available.packages()
+seed_packages <- unique(c(critical_packages, dependency_packages, support_packages))
+recursive_dependencies <- unlist(
+  utils::package_dependencies(
+    seed_packages,
+    db = available_packages,
+    which = c("Depends", "Imports", "LinkingTo"),
+    recursive = TRUE
+  ),
+  use.names = FALSE
+)
+base_packages <- rownames(utils::installed.packages(priority = "base"))
+packages <- unique(c(seed_packages, recursive_dependencies))
+packages <- setdiff(packages, base_packages)
 missing <- packages[!vapply(packages, package_loadable, logical(1))]
 
 if (length(missing)) {
-  available <- rownames(utils::available.packages())
+  available <- rownames(available_packages)
   installable <- intersect(missing, available)
   unavailable <- setdiff(missing, available)
 
