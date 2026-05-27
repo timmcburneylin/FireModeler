@@ -13,6 +13,9 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 
+if not hasattr(pd.Series, "iteritems"):
+    pd.Series.iteritems = pd.Series.items
+
 try:
     from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
     HAS_AGGRID = True
@@ -298,6 +301,26 @@ def step2_weather_input(project_name: str, weather_code: int) -> Dict[str, Any]:
         "path": str(full_path),
         "name": weather_name,
     }
+
+
+def step2_input_status(project_name: str, weather_code: int) -> Dict[str, Any]:
+    if not project_name:
+        return {"ready": False, "missing": ["Project name"], "weather_file": step2_weather_input(project_name, weather_code)}
+
+    base = project_data_dir(project_name)
+    checks = [
+        ("SNAP overstory", base / "raw" / "SNAP" / f"{project_name}_OS.csv"),
+        ("SNAP understory", base / "raw" / "SNAP" / f"{project_name}_US.csv"),
+        ("SNAP extra", base / "raw" / "SNAP" / f"{project_name}_EXTRA.csv"),
+        ("SNAP fuels", base / "raw" / "SNAP" / f"{project_name}_FUELS.csv"),
+        ("ERC ecodivision template", ROOT / "templates" / "ERC_ECODIV_polygon.shp"),
+        ("BEC weather-zone template", ROOT / "templates" / "BEC_Zones_OLD.shp"),
+    ]
+    weather_file = step2_weather_input(project_name, weather_code)
+    checks.append((f"Raw weather file {weather_file['name']}", Path(weather_file["path"])))
+
+    missing = [label for label, path in checks if not path.exists()]
+    return {"ready": not missing, "missing": missing, "weather_file": weather_file}
 
 
 def step05_input_ready(project_name: str, treatment_names: List[str]) -> bool:
@@ -1700,12 +1723,13 @@ with main_col:
             )
         )
 
+    step2_status = step2_input_status(current_project, step2_weather_code)
+    step2_weather_file = step2_status["weather_file"]
+    step2_ready = step2_status["ready"]
     fuelcalc_outputs_exist = any(
         path.is_file()
         for path in (project_data_dir(current_project) / "raw" / "FuelCalc" / "Outputs").rglob("*_FuelCalc_FFI_Outputs.csv")
     ) if current_project else False
-    step2_weather_file = step2_weather_input(current_project, step2_weather_code)
-    step2_ready = fuelcalc_outputs_exist and step2_weather_file["exists"]
 
     st.write("Expected raw weather input file:")
     st.code(step2_weather_file["path"], language="text")
@@ -1714,6 +1738,10 @@ with main_col:
     else:
         st.error(f"Missing weather input file: {step2_weather_file['name']}")
         st.caption("Step 2 expects a user-provided raw station CSV in this exact location. The script does not download weather data itself.")
+    if step2_status["missing"]:
+        st.warning("Step 2 is waiting on: " + ", ".join(step2_status["missing"]))
+    if not fuelcalc_outputs_exist:
+        st.info("FuelCalc output CSVs were not found yet. Step 2 can still run the weather analysis, but run FuelCalc before Step 3.")
 
     step2_save_col, step2_run_col = st.columns(2)
     if step2_save_col.button("Save Step 2 Settings", use_container_width=True):
@@ -1729,7 +1757,7 @@ with main_col:
         st.session_state.config_state = cfg
         st.success("Saved local weather settings.")
 
-    step2_help = "Run Step 1 and FuelCalc first, and place the raw weather CSV at raw/Weather/raw/<station_code>.csv before Step 2."
+    step2_help = "Run Project Setup and place the raw weather CSV at raw/Weather/raw/<station_code>.csv before Step 2."
     if step2_run_col.button("Run Step 2", use_container_width=True, disabled=not step2_ready, help=step2_help):
         cfg["fuelcalc_to_firemodel"] = {
             "weather_type": step2_weather_type,
@@ -2050,6 +2078,11 @@ with main_col:
         )
         trigger_rerun()
     render_step3_runtime(current_project, "Fire Modeling Setup")
+    step3_async_state = sync_async_pipeline_run("step3_fire_model")
+    step3_running = bool(step3_async_state and step3_async_state.get("status") == "running")
+    if not step3_running:
+        manifest = load_json(project_manifest_path(current_project)) if current_project else {}
+        status = load_json(project_status_path(current_project)) if current_project else {}
 
     if step3_running:
         st.info("Step 3 is running. Results will refresh after the run completes.")
@@ -2066,6 +2099,19 @@ with main_col:
             (step3_results.get("head_fire_intensity", {}).get("path", ""), "Head Fire Intensity"),
             (step3_results.get("rate_of_spread", {}).get("path", ""), "Rate of Spread"),
         ]
+        step3_results_csv = project_data_dir(current_project) / "raw" / "FireBehavior" / "Outputs" / "FireModelingResults.csv"
+        if step3_results_csv.exists():
+            step3_results_mtime = step3_results_csv.stat().st_mtime
+            basic_result_items = [
+                (path_str, title)
+                for path_str, title in basic_result_items
+                if path_str and Path(path_str).exists() and Path(path_str).stat().st_mtime >= step3_results_mtime
+            ]
+            advanced_result_items = [
+                (path_str, title)
+                for path_str, title in advanced_result_items
+                if path_str and Path(path_str).exists() and Path(path_str).stat().st_mtime >= step3_results_mtime
+            ]
         has_step3_results = any(Path(path_str).exists() for path_str, _ in (basic_result_items + advanced_result_items) if path_str)
         st.markdown("**Results: Fire Modeling Prediction**")
         st.markdown("**Section 1: Basic Results**")

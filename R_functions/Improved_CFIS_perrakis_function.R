@@ -1,4 +1,4 @@
-cfis_modified <- function(fsg, u10, effm, sfc, cbd, id,centroid ,adjusted=TRUE) {
+cfis_modified <- function(fsg, u10, effm, sfc, cbd, id, centroid = NULL, adjusted = TRUE) {
   
   #all values as vectors:
   
@@ -8,19 +8,16 @@ cfis_modified <- function(fsg, u10, effm, sfc, cbd, id,centroid ,adjusted=TRUE) 
   #effm = effective fine fuel moisture (%) as a percentage
   #cbd = canopy bulk density kg/m3
   
-  if (any(fsg > 12)) warning("Canopy base height should not exceed 12 m")
-  if (any(u10 > 80)) warning("Open wind speed should not exceed 80 km/hr")
+  if (any(fsg > 12, na.rm = TRUE)) warning("Canopy base height should not exceed 12 m")
+  if (any(u10 > 80, na.rm = TRUE)) warning("Open wind speed should not exceed 80 km/hr")
   #if (any(effm > 20)) warning("Fuel moisture should not exceed 20 percent")
-  if (any(cbd > 1)) warning("Canopy bulk density should not exceed 1 kg/m3")
+  if (any(cbd > 1, na.rm = TRUE)) warning("Canopy bulk density should not exceed 1 kg/m3")
   
   sfc
   MC_WS<- u10*effm
   
-  if(adjusted == "TRUE" & fsg > 2.0){
-    FSG_mod<-(fsg-1)^1.5
-  }else{
-    FSG_mod<-fsg^1.5
-  }
+  adjusted_enabled <- isTRUE(adjusted) || identical(adjusted, "TRUE")
+  FSG_mod <- ifelse(adjusted_enabled & !is.na(fsg) & fsg > 2.0, (fsg - 1)^1.5, fsg^1.5)
   SFC_ln<- log(sfc)
   
   #Function(11) from Perrakis et al. 2023
