@@ -24,10 +24,20 @@ if (!identical(renv_version, "1.1.7")) {
 
 critical_packages <- c(
   "jsonlite",
+  "cli",
   "dplyr",
+  "generics",
+  "lifecycle",
+  "magrittr",
+  "pillar",
+  "pkgconfig",
+  "rlang",
   "tidyr",
+  "tidyselect",
   "purrr",
   "tibble",
+  "utf8",
+  "vctrs",
   "ggplot2",
   "flextable",
   "sf",
@@ -41,6 +51,46 @@ critical_packages <- c(
   "stringr",
   "readxl",
   "openxlsx"
+)
+
+dependency_packages <- c(
+  "askpass",
+  "base64enc",
+  "bslib",
+  "cachem",
+  "cpp11",
+  "curl",
+  "data.table",
+  "digest",
+  "evaluate",
+  "fansi",
+  "fastmap",
+  "fontawesome",
+  "fs",
+  "gdtools",
+  "htmltools",
+  "isoband",
+  "jquerylib",
+  "knitr",
+  "memoise",
+  "mime",
+  "openssl",
+  "R6",
+  "ragg",
+  "Rcpp",
+  "rmarkdown",
+  "sass",
+  "scales",
+  "stringi",
+  "systemfonts",
+  "textshaping",
+  "tinytex",
+  "viridisLite",
+  "withr",
+  "xfun",
+  "xml2",
+  "yaml",
+  "zip"
 )
 
 support_packages <- c(
@@ -84,9 +134,12 @@ support_packages <- c(
   "ecmwfr"
 )
 
-packages <- unique(c(critical_packages, support_packages))
-installed <- rownames(utils::installed.packages(lib.loc = project_lib))
-missing <- setdiff(packages, installed)
+package_loadable <- function(package) {
+  requireNamespace(package, quietly = TRUE)
+}
+
+packages <- unique(c(critical_packages, dependency_packages, support_packages))
+missing <- packages[!vapply(packages, package_loadable, logical(1))]
 
 if (length(missing)) {
   available <- rownames(utils::available.packages())
@@ -96,7 +149,12 @@ if (length(missing)) {
   if (length(installable)) {
     message("Installing R packages into ", project_lib)
     message(paste(installable, collapse = ", "))
-    utils::install.packages(installable, lib = project_lib, type = "binary")
+    utils::install.packages(
+      installable,
+      lib = project_lib,
+      type = "binary",
+      dependencies = c("Depends", "Imports", "LinkingTo")
+    )
   }
 
   if (length(unavailable)) {
@@ -104,6 +162,19 @@ if (length(missing)) {
   }
 } else {
   message("R packages already installed.")
+}
+
+still_missing <- packages[!vapply(packages, package_loadable, logical(1))]
+retry_packages <- setdiff(still_missing, c("firebehavioR", "Rothermel"))
+if (length(retry_packages)) {
+  message("Retrying packages that are installed incompletely or missing dependencies")
+  message(paste(retry_packages, collapse = ", "))
+  utils::install.packages(
+    retry_packages,
+    lib = project_lib,
+    type = "binary",
+    dependencies = c("Depends", "Imports", "LinkingTo")
+  )
 }
 
 if (!requireNamespace("firebehavioR", quietly = TRUE)) {
