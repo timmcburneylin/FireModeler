@@ -11,7 +11,15 @@ project_lib <- file.path(project, "renv", "library", platform_prefix, paste0("R-
 dir.create(project_lib, recursive = TRUE, showWarnings = FALSE)
 .libPaths(c(project_lib, .libPaths()))
 
-renv_version <- tryCatch(as.character(utils::packageVersion("renv")), error = function(...) NA_character_)
+project_library_package_version <- function(package) {
+  desc <- file.path(project_lib, package, "DESCRIPTION")
+  if (!file.exists(desc)) {
+    return(NA_character_)
+  }
+  as.character(utils::packageDescription(package, lib.loc = project_lib)$Version)
+}
+
+renv_version <- project_library_package_version("renv")
 if (!identical(renv_version, "1.1.7")) {
   message("Installing renv 1.1.7 into ", project_lib)
   utils::install.packages(
@@ -135,7 +143,8 @@ support_packages <- c(
 )
 
 package_loadable <- function(package) {
-  requireNamespace(package, quietly = TRUE)
+  system.file(package = package, lib.loc = project_lib) != "" &&
+    suppressWarnings(require(package, character.only = TRUE, lib.loc = project_lib, quietly = TRUE))
 }
 
 packages <- unique(c(critical_packages, dependency_packages, support_packages))
@@ -161,7 +170,7 @@ if (length(missing)) {
     warning("These packages were not available from CRAN binaries and were skipped: ", paste(unavailable, collapse = ", "))
   }
 } else {
-  message("R packages already installed.")
+  message("R packages already installed in ", project_lib)
 }
 
 still_missing <- packages[!vapply(packages, package_loadable, logical(1))]
@@ -177,12 +186,12 @@ if (length(retry_packages)) {
   )
 }
 
-if (!requireNamespace("firebehavioR", quietly = TRUE)) {
+if (!package_loadable("firebehavioR")) {
   message("Installing firebehavioR from R-universe")
   utils::install.packages("firebehavioR", lib = project_lib, type = "source")
 }
 
-if (!requireNamespace("Rothermel", quietly = TRUE)) {
+if (!package_loadable("Rothermel")) {
   message("Installing archived Rothermel package")
   try(
     utils::install.packages(
@@ -195,7 +204,7 @@ if (!requireNamespace("Rothermel", quietly = TRUE)) {
   )
 }
 
-still_missing_critical <- critical_packages[!vapply(critical_packages, requireNamespace, logical(1), quietly = TRUE)]
+still_missing_critical <- critical_packages[!vapply(critical_packages, package_loadable, logical(1))]
 if (length(still_missing_critical)) {
   stop("Missing required R packages after install: ", paste(still_missing_critical, collapse = ", "), call. = FALSE)
 }
