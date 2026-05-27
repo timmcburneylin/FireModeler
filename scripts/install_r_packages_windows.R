@@ -151,7 +151,7 @@ package_loadable <- function(package) {
 available_packages <- utils::available.packages()
 seed_packages <- unique(c(critical_packages, dependency_packages, support_packages))
 recursive_dependencies <- unlist(
-  utils::package_dependencies(
+  tools::package_dependencies(
     seed_packages,
     db = available_packages,
     which = c("Depends", "Imports", "LinkingTo"),
