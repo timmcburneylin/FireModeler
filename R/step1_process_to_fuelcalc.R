@@ -195,6 +195,36 @@ rename_and_merge_species <- function(cuts) {
   return(cuts)
 }
 
+read_cutting_specs_for_fuelcalc <- function(cutting_specs) {
+  cuts <- read.csv(cutting_specs, check.names = FALSE)
+  names(cuts) <- trimws(names(cuts))
+
+  desc_cols <- c("Stand.Layer", "DBH.Class")
+  missing_desc <- setdiff(desc_cols, names(cuts))
+  if (length(missing_desc)) {
+    stop(
+      "Cutting spec file is missing required columns in ",
+      cutting_specs,
+      ": ",
+      paste(missing_desc, collapse = ", ")
+    )
+  }
+
+  pct_cols <- grep("(\\.\\%|\\.\\.)$", names(cuts), value = TRUE)
+  pct_cols <- setdiff(pct_cols, desc_cols)
+  if (!length(pct_cols)) {
+    stop(
+      "Cutting spec file has no species percent columns in ",
+      cutting_specs,
+      ". Expected headers like Fd.% or Fd.."
+    )
+  }
+
+  cuts <- cuts[, c(desc_cols, pct_cols), drop = FALSE]
+  names(cuts) <- sub("(\\.\\%|\\.\\.)$", "", names(cuts))
+  cuts
+}
+
 is_within_range <- function(value, min_val, max_val) {
   value >= min_val & value <= max_val
 }
@@ -1401,11 +1431,7 @@ for (i in 1:length(unique(Snap_EX$Stratum))) {
   TR<- tr_names[i]
   inputfolder<-paste0(TR,"_tables")
   cutting_specs<-paste0(path,s_s_prefix,inputfolder,"/cuttingSpecs_",TR,".csv")
-  cuts <- read.csv(cutting_specs)
-  desc_cols <- c("Stand.Layer", "DBH.Class")
-  pct_cols  <- names(cuts)[grepl("\\..%$", names(cuts))]
-  cuts <- cuts[, c(desc_cols, pct_cols)]
-  names(cuts) <- gsub("\\..%$", "", names(cuts))
+  cuts <- read_cutting_specs_for_fuelcalc(cutting_specs)
   
   #decide if thinning
   Thin<-ifelse(ThinFlags[i] ==TRUE,"Yes","No")
@@ -1643,11 +1669,7 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
     
     inputfolder<-paste0(TR,"_tables")
     cutting_specs<-paste0(path,s_s_prefix,inputfolder,"/cuttingSpecs_",TR,".csv")
-    cuts <- read.csv(cutting_specs)
-    desc_cols <- c("Stand.Layer", "DBH.Class")
-    pct_cols  <- names(cuts)[grepl("\\..%$", names(cuts))]
-    cuts <- cuts[, c(desc_cols, pct_cols)]
-    names(cuts) <- gsub("\\..%$", "", names(cuts))
+    cuts <- read_cutting_specs_for_fuelcalc(cutting_specs)
     
     # Remove unwanted columns
     cuts <- cuts %>% dplyr::select(-Stand.Layer)

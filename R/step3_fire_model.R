@@ -115,6 +115,56 @@ mode <- function(x) {
   unique_vals[which.max(tabulate(match(x, unique_vals)))]
 }
 
+read_cutting_specs_for_firemodel <- function(cutting_specs) {
+  cuts <- read.csv(cutting_specs, check.names = FALSE, stringsAsFactors = FALSE)
+  names(cuts) <- trimws(names(cuts))
+
+  desc_cols <- c("Stand.Layer", "DBH.Class")
+  missing_desc <- setdiff(desc_cols, names(cuts))
+  if (length(missing_desc)) {
+    stop(
+      "Cutting spec file is missing required columns in ",
+      cutting_specs,
+      ": ",
+      paste(missing_desc, collapse = ", ")
+    )
+  }
+
+  pct_cols <- grep("(\\.\\%|\\.\\.)$", names(cuts), value = TRUE)
+  pct_cols <- setdiff(pct_cols, desc_cols)
+  if (!length(pct_cols)) {
+    stop(
+      "Cutting spec file has no species percent columns in ",
+      cutting_specs,
+      ". Expected headers like Fd.% or Fd.."
+    )
+  }
+
+  cuts <- cuts[, c(desc_cols, pct_cols), drop = FALSE]
+  names(cuts) <- sub("(\\.\\%|\\.\\.)$", "", names(cuts))
+  cuts
+}
+
+dbh_class_midpoint <- function(dbh_class) {
+  normalized <- gsub("\\s+", "", as.character(dbh_class))
+  dplyr::case_when(
+    normalized == "0-1.5" ~ 1,
+    normalized == "1.5-7.5" ~ 5,
+    normalized == "7.5-12.5" ~ 10,
+    normalized == "12.5-17.5" ~ 15,
+    normalized == "17.5-22.5" ~ 20,
+    normalized == "22.5-27.5" ~ 25,
+    normalized == "27.5-35" ~ 31.25,
+    normalized == "35-45" ~ 40,
+    normalized == "45+" ~ 55,
+    TRUE ~ NA_real_
+  )
+}
+
+valid_number <- function(x) {
+  length(x) == 1 && !is.na(x) && is.finite(x)
+}
+
 source_local_function("Residence_Time_Function_Nelson2003b.R")
 source_local_function("Improved_CFIS_perrakis_function.R")
 source_local_function("Crosswalk CAN to US Fuel Model Function.R")
@@ -437,13 +487,13 @@ for(j in 1:length(strata)){
   PT_stand<- read.csv(paste0(path,"/FuelCalc/Outputs/TU_",st,"/TU_",st,"_FuelCalc_FFI_Outputs.csv"))
   PT_stand<-PT_stand[-1,]
   #decide on prune
-  if(prune_vals[j]>0){
+  prune<-suppressWarnings(as.numeric(prune_vals[j]))
+  if(valid_number(prune) && prune > 0){
     pruneflag<-TRUE
-    prune<-prune_vals[j]
   }else{
     pruneflag<-FALSE
+    prune<-0
   }
-  prune<-prune_vals[j]
   
   #1.Modify CBH 
   #weighted by the proportionate coverage of under story trees and the 
@@ -459,7 +509,7 @@ for(j in 1:length(strata)){
   mean_cbh_Post_FC<- as.numeric(structure_data$Post_CBH)
   
   #check if post treatment CBH from fuelcalc is higher than pruning height, if not then reset it to prune height
-  if(prune > mean_cbh_Post_FC){
+  if(pruneflag && valid_number(mean_cbh_Post_FC) && prune > mean_cbh_Post_FC){
     mean_cbh_Post_FC<-prune
   }else{
     mean_cbh_Post_FC<-mean_cbh_Post_FC
@@ -511,15 +561,16 @@ for(j in 1:length(strata)){
     DBH<-0
     #centroid calculation for stands without overstory
     table_folder<- paste0(st,"_tables")
-    cuttingSpecs <- read.csv(file = paste0(path,s_s_prefix,table_folder,"/cuttingSpecs_",st,".csv"), row.names = NULL, stringsAsFactors = FALSE)
+    cuttingSpecs <- read_cutting_specs_for_firemodel(paste0(path,s_s_prefix,table_folder,"/cuttingSpecs_",st,".csv"))
     OS_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_Ht<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
-    desc_cols <- c("Stand.Layer", "DBH.Class")
-    pct_cols  <- names(cuttingSpecs)[grepl("\\..%$", names(cuttingSpecs))]
-    cuttingSpecs <- cuttingSpecs[, c(desc_cols, pct_cols)]
-    names(cuttingSpecs) <- gsub("\\..%$", "", names(cuttingSpecs))
-    
+    if (!("Layer" %in% names(US_SPH)) && "DBH.Class" %in% names(US_SPH)) {
+      US_SPH <- US_SPH |> dplyr::rename(Layer = DBH.Class)
+    }
+    if (!("Layer" %in% names(US_Ht)) && "DBH.Class" %in% names(US_Ht)) {
+      US_Ht <- US_Ht |> dplyr::rename(Layer = DBH.Class)
+    }
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation
     OS_SPH<-OS_SPH %>%
       filter(DBH.Class != "Total") 
@@ -616,15 +667,7 @@ for(j in 1:length(strata)){
     US_Cent_melt<-US_Cent_melt %>% filter(Cen > 0)
     #modify cutting specs
     cuttingSpecs <- subset(cuttingSpecs, select = -c(Stand.Layer))
-    cuttingSpecs$DBH<- ifelse(cuttingSpecs$DBH.Class == "0-1.5",1,
-                              ifelse(cuttingSpecs$DBH.Class == "1.5-7.5",5,
-                                     ifelse(cuttingSpecs$DBH.Class== "7.5-12.5",10,
-                                            ifelse(cuttingSpecs$DBH.Class == "12.5-17.5",15,
-                                                   ifelse(cuttingSpecs$DBH.Class == "17.5 - 22.5", 20,
-                                                          ifelse(cuttingSpecs$DBH.Class == "22.5 - 27.5", 25,
-                                                                 ifelse(cuttingSpecs$DBH.Class == "27.5 - 35",31.25,
-                                                                        ifelse(cuttingSpecs$DBH.Class == "35 - 45",40,
-                                                                               55))))))))
+    cuttingSpecs$DBH <- dbh_class_midpoint(cuttingSpecs$DBH.Class)
     #remove old dbh class column
     cuttingSpecs<-cuttingSpecs %>%
       dplyr::select(-DBH.Class)
@@ -686,16 +729,16 @@ for(j in 1:length(strata)){
     
     #calculate modified CBH to account for crown area change and CBD change post treatment
     table_folder<- paste0(st,"_tables")
-    cuttingSpecs <- read.csv(file = paste0(path,s_s_prefix,table_folder,"/cuttingSpecs_",st,".csv"), row.names = NULL, stringsAsFactors = FALSE)
+    cuttingSpecs <- read_cutting_specs_for_firemodel(paste0(path,s_s_prefix,table_folder,"/cuttingSpecs_",st,".csv"))
     OS_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/OS_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_SPH<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_SPH.csv"), row.names = NULL, stringsAsFactors = FALSE)
     US_Ht<- read.csv(paste0(path,s_s_prefix,table_folder,"/US_Ht_CBH.csv"), row.names = NULL, stringsAsFactors = FALSE)
-    desc_cols <- c("Stand.Layer", "DBH.Class")
-    pct_cols  <- names(cuttingSpecs)[grepl("\\..%$", names(cuttingSpecs))]
-    cuttingSpecs <- cuttingSpecs[, c(desc_cols, pct_cols)]
-    names(cuttingSpecs) <- gsub("\\..%$", "", names(cuttingSpecs))
-    
-    
+    if (!("Layer" %in% names(US_SPH)) && "DBH.Class" %in% names(US_SPH)) {
+      US_SPH <- US_SPH |> dplyr::rename(Layer = DBH.Class)
+    }
+    if (!("Layer" %in% names(US_Ht)) && "DBH.Class" %in% names(US_Ht)) {
+      US_Ht <- US_Ht |> dplyr::rename(Layer = DBH.Class)
+    }
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation
     OS_SPH<-OS_SPH %>%
       filter(DBH.Class != "Total") 
@@ -782,15 +825,7 @@ for(j in 1:length(strata)){
     
     #modify cutting specs
     cuttingSpecs <- subset(cuttingSpecs, select = -c(Stand.Layer))
-    cuttingSpecs$DBH<- ifelse(cuttingSpecs$DBH.Class == "0 - 1.5",1,
-                              ifelse(cuttingSpecs$DBH.Class == "1.5 - 7.5",5,
-                                     ifelse(cuttingSpecs$DBH.Class== "7.5 - 12.5",10,
-                                            ifelse(cuttingSpecs$DBH.Class == "12.5 - 17.5",15,
-                                                   ifelse(cuttingSpecs$DBH.Class == "17.5 - 22.5", 20,
-                                                          ifelse(cuttingSpecs$DBH.Class == "22.5 - 27.5", 25,
-                                                                 ifelse(cuttingSpecs$DBH.Class == "27.5 - 35",31.25,
-                                                                        ifelse(cuttingSpecs$DBH.Class == "35 - 45",40,
-                                                                               55))))))))
+    cuttingSpecs$DBH <- dbh_class_midpoint(cuttingSpecs$DBH.Class)
     #remove old dbh class column
     cuttingSpecs<-cuttingSpecs %>%
       dplyr::select(-DBH.Class)
@@ -851,24 +886,24 @@ for(j in 1:length(strata)){
     SPH_Results_PT$Crown_Area_Pre_Treatment<- SPH_Results_PT$Crown_Area_Tree*SPH_Results_PT$SPH
     
     #calculate total crown area coverage for pre and post treatment
-    Total_CA<- sum(SPH_Results_PT$Crown_Area_Ha)
-    Total_CA_pre<-sum(SPH_Results_PT$Crown_Area_Pre_Treatment)
+    Total_CA<- sum(SPH_Results_PT$Crown_Area_Ha, na.rm = TRUE)
+    Total_CA_pre<-sum(SPH_Results_PT$Crown_Area_Pre_Treatment, na.rm = TRUE)
     
     #proportion of remaining crown coverage of understory trees
     #calculate crown area occupied by understory trees after cutting
     US_CA <- SPH_Results_PT %>%
       filter(DBH <= 15) %>%
-      summarise(US_CROWNAREA = sum(Crown_Area_Ha)) %>%
+      summarise(US_CROWNAREA = sum(Crown_Area_Ha, na.rm = TRUE)) %>%
       pull(US_CROWNAREA)
     #crown area ratio of understory to total crown after cutting
-    US_CA_ratio<- US_CA/Total_CA
+    US_CA_ratio<- ifelse(Total_CA > 0, US_CA/Total_CA, NA_real_)
     
     #calculate crown area occupied by understory trees before cutting
     US_CA_pre <- SPH_Results_PT %>%
       filter(DBH <= 15) %>%
-      summarise(US_CrownA_pre = sum(Crown_Area_Pre_Treatment)) %>%
+      summarise(US_CrownA_pre = sum(Crown_Area_Pre_Treatment, na.rm = TRUE)) %>%
       pull(US_CrownA_pre)
-    US_CA_ratio_pre<- US_CA_pre/Total_CA_pre
+    US_CA_ratio_pre<- ifelse(Total_CA_pre > 0, US_CA_pre/Total_CA_pre, NA_real_)
     
     #modify understory centroid by the proportion of area occupied by understory crowns for pre and post treatment
     Centroid_US_modified_pre<-Centroid_US_pre*US_CA_ratio_pre
@@ -878,19 +913,19 @@ for(j in 1:length(strata)){
     #proportion of remaining crown coverage of overstory trees
     OS_CA<- SPH_Results_PT %>%
       filter(DBH > 15) %>%
-      summarise(US_CROWNAREA = sum(Crown_Area_Ha)) %>%
+      summarise(US_CROWNAREA = sum(Crown_Area_Ha, na.rm = TRUE)) %>%
       pull(US_CROWNAREA)
-    OS_CA_ratio<-OS_CA/Total_CA
+    OS_CA_ratio<-ifelse(Total_CA > 0, OS_CA/Total_CA, NA_real_)
     
     #calculate proportional change to canopy base height as a function of the decline in canopy coverage from the removal of overstory trees
     CA_OS_original<- SPH_Results_PT %>%
       filter(DBH > 15) %>%
-      summarise(OS_CA_O = sum(Crown_Area_Pre_Treatment)) %>%
+      summarise(OS_CA_O = sum(Crown_Area_Pre_Treatment, na.rm = TRUE)) %>%
       pull(OS_CA_O)
-    OS_CA_pre<-CA_OS_original/Total_CA_pre
+    OS_CA_pre<-ifelse(Total_CA_pre > 0, CA_OS_original/Total_CA_pre, NA_real_)
     
     #calculate the change in canopy coverage from pre treatment over story to post-treatment over story, ie what reduction in canopy coverage did we induce for overstory alone
-    OS_CA_change_ratio<- OS_CA/CA_OS_original
+    OS_CA_change_ratio<- ifelse(CA_OS_original > 0, OS_CA/CA_OS_original, NA_real_)
     
     #Use these ratios to modify canopy base height with the contribution of the remaining understory and overstory trees
     #post treatment CBH take average of over story CBH + average weighted pruned CBH
@@ -1037,13 +1072,19 @@ for(j in 1:length(strata)){
   if(is.na(herb)){herb<-0}
   
   #if CBH is lower then pruning height for post treatment then set it to pruned cbh 
-  if(pruneflag == TRUE & prune > mean_cbh){
+  if(pruneflag && valid_number(mean_cbh) && prune > mean_cbh){
     mean_cbh_prune<-prune
   }else{
     mean_cbh_prune<-mean_cbh
   }
+  if(!valid_number(mean_cbh_prune) && pruneflag){
+    mean_cbh_prune<-prune
+  }
   #
-  if(pruneflag == TRUE & prune > CBH_post_modified){
+  if(!valid_number(CBH_post_modified)){
+    CBH_post_modified<-mean_cbh_Post_FC
+  }
+  if(pruneflag && (!valid_number(CBH_post_modified) || prune > CBH_post_modified)){
     CBH_post_modified<-prune
   }else{
     CBH_post_modified<-CBH_post_modified
@@ -1878,8 +1919,12 @@ save_as_image(FBPOUT, paste0(path,Fire_out,"FBP_CSISummaryTable.png"))
 
 
 if(AdvancedModels){
+CrownPlotData <- PlotData %>%
+  filter(is.finite(CrownProbability))
+
+if(nrow(CrownPlotData) > 0){
 #Probability of Crown Fire BoxPlot:--------------------------------------------------
-pCrown_box <- PlotData %>%
+pCrown_box <- CrownPlotData %>%
   ggplot(aes(x = Period, y = CrownProbability, fill = Period, color = Period)) +
   geom_jitter(width = 0.15, alpha = 0.05, size = 0.3) +
   geom_boxplot(alpha = 0.7, outlier.size = 0.8, outlier.alpha = 0.4) +
@@ -1923,15 +1968,15 @@ ggsave(paste0(path,Fire_out,"ProbabilityCrownFireBoxPlot.png"),
        dpi = 300) 
 
 #Probability of Crown by Wind Speed:---------------------------------------------
-pCrown_Point <- PlotData %>%
+pCrown_Point <- CrownPlotData %>%
   ggplot(aes(x = WS, y = CrownProbability, fill = Period, color = Period)) +
-  geom_vline(xintercept = seq(0, max(WS), 5), linetype = "dashed", 
+  geom_vline(xintercept = seq(0, max(CrownPlotData$WS, na.rm = TRUE), 5), linetype = "dashed", 
              color = "grey60", linewidth = 0.2) +
   geom_hline(yintercept = seq(0, 100, 25), linetype = "dashed", 
              color = "grey60", linewidth = 0.4) +
   geom_hline(yintercept = 50, linetype = "dashed",
              color = "red3", linewidth = 0.6) +
-  geom_text(data = data.frame(Strata = unique(PlotData$Strata)),
+  geom_text(data = data.frame(Strata = unique(CrownPlotData$Strata)),
             aes(x = Inf, y = 52, label = "Crown Fire Predicted"),
             hjust = 1.05, vjust = 0, size = 4, color = "red3",
             fontface = "italic", inherit.aes = FALSE) +
@@ -1963,16 +2008,16 @@ ggsave(paste0(path, Fire_out, "CrownProbWindSpeed.png"),
        dpi = 300)
 
 #ProbCrown over fine fuel moisture:--------------------------------------------
-pCrown_FM <- PlotData %>%
-  filter(FuelMoist_1hr + 1 <= quantile(FuelMoist_1hr + 1, 0.95)) %>%
+pCrown_FM <- CrownPlotData %>%
+  filter(FuelMoist_1hr + 1 <= quantile(FuelMoist_1hr + 1, 0.95, na.rm = TRUE)) %>%
   ggplot(aes(x = FuelMoist_1hr+1, y = CrownProbability, fill = Period, color = Period)) +
-  geom_vline(xintercept = seq(0, max(PlotData$FuelMoist_1hr+1), 2), linetype = "dashed", 
+  geom_vline(xintercept = seq(0, max(CrownPlotData$FuelMoist_1hr+1, na.rm = TRUE), 2), linetype = "dashed", 
              color = "grey60", linewidth = 0.2) +
   geom_hline(yintercept = seq(0, 100, 25), linetype = "dashed", 
              color = "grey60", linewidth = 0.4) +
   geom_hline(yintercept = 50, linetype = "dashed",
              color = "red3", linewidth = 0.6) +
-  geom_text(data = data.frame(Strata = unique(PlotData$Strata)),
+  geom_text(data = data.frame(Strata = unique(CrownPlotData$Strata)),
             aes(x = Inf, y = 52, label = "Crown Fire Predicted"),
             hjust = 1.05, vjust = 0, size = 4, color = "red3",
             fontface = "italic", inherit.aes = FALSE) +
@@ -1980,8 +2025,8 @@ pCrown_FM <- PlotData %>%
   geom_smooth(method = "loess", se = FALSE, alpha = 0.75, linewidth = 2, span=0.85) +
   scale_fill_manual(values  = c("Pre" = "#D4A843", "Post" = "#4A7C59")) +
   scale_color_manual(values = c("Pre" = "#B8892A", "Post" = "#2E5E3E")) +
-  scale_x_continuous(limits = c(0, quantile(PlotData$FuelMoist_1hr + 1, 0.95)),
-                     breaks = seq(0, quantile(PlotData$FuelMoist_1hr + 1, 0.95), 2)) +
+  scale_x_continuous(limits = c(0, quantile(CrownPlotData$FuelMoist_1hr + 1, 0.95, na.rm = TRUE)),
+                     breaks = seq(0, quantile(CrownPlotData$FuelMoist_1hr + 1, 0.95, na.rm = TRUE), 2)) +
   scale_y_continuous(limits = c(0, 100), breaks = seq(0, 100, 25)) +
   facet_wrap(~Strata, scales = "fixed", nrow = 1,
              labeller = labeller(Strata = function(x) paste0("FTU ", x))) +
@@ -2004,9 +2049,10 @@ ggsave(paste0(path,Fire_out,"CrownProbFuelMoist.png"),
        height = 6,
        units = "in",
        dpi = 300)
+}
 #Head Fire Intensity:---------------------------------------------
 pHFI_bar <- PlotData %>%
-  mutate(HeadFireIntensity = ifelse(CrownProbability < 50, SurfaceIntensity, CrownIntensity)) %>%
+  mutate(HeadFireIntensity = ifelse(!is.na(CrownProbability) & CrownProbability >= 50 & !is.na(CrownIntensity), CrownIntensity, SurfaceIntensity)) %>%
   group_by(Strata, Period) %>%
   summarise(MedianHFI = median(HeadFireIntensity, na.rm = TRUE),
             Q40 = quantile(HeadFireIntensity, 0.40, na.rm = TRUE),
@@ -2043,7 +2089,7 @@ ggsave(paste0(path, Fire_out, "MedianHFIBarPlot.png"),
 
 #Rate Of Spread:--------------------------------------------------------------
 pROS_bar <- PlotData %>%
-  mutate(ROS = ifelse(CrownProbability < 50, SurfaceROS, CrownROS)) %>%
+  mutate(ROS = ifelse(!is.na(CrownProbability) & CrownProbability >= 50 & !is.na(CrownROS), CrownROS, SurfaceROS)) %>%
   group_by(Strata, Period) %>%
   summarise(MedianROS = median(ROS, na.rm = TRUE),
             Q40 = quantile(ROS, 0.40, na.rm = TRUE),
