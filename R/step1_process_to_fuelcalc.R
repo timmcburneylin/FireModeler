@@ -1397,8 +1397,8 @@ write.csv(Snap_fuels,paste0(path,snap_prefix,project,"_FUELS.csv"),row.names = F
 
 #Creates fake cutting specs with all zeros if you are not cutting
 if(!cutting){
-  for(i in 1:length(unique(Snap_EX$Stratum))){
-    tr<-unique(Snap_EX$Stratum)[i]
+  for(i in seq_along(tr_names)){
+    tr<-tr_names[i]
     OS<-Snap_OS[Snap_OS$Stratum == tr,]
     US<-Snap_US[Snap_US$Stratum == tr,]
     all_spp<-c(OS$Spp,US$SPP)
@@ -1427,7 +1427,7 @@ if(!cutting){
 #FuelCalcBC Input Files:------------------------
 
 # Loop through each cutting spec file
-for (i in 1:length(unique(Snap_EX$Stratum))) {
+for (i in seq_along(tr_names)) {
   TR<- tr_names[i]
   inputfolder<-paste0(TR,"_tables")
   cutting_specs<-paste0(path,s_s_prefix,inputfolder,"/cuttingSpecs_",TR,".csv")
@@ -1574,7 +1574,7 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
 #---------
 
   #Load files
-  stratas<- unique(Snap_EX$Stratum)
+  stratas<- tr_names
   Fuels<-Snap_fuels
   US<-Snap_US
   OS<-Snap_OS
@@ -1663,7 +1663,7 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
   }
   
   #Creating Input FCP Files
-  for (i in 1:length(unique(Snap_EX$Stratum))) {
+  for (i in seq_along(tr_names)) {
     TR<- tr_names[i]
     strata_df<-Fuels %>% filter(Stratum == TR)
     
@@ -1869,8 +1869,8 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
   }
   
   #Create Plot folders for fuelcalc
-  for(i in 1:length(unique(Snap_EX$Stratum))){
-    tr<-unique(Snap_EX$Stratum)[i]
+  for(i in seq_along(tr_names)){
+    tr<-tr_names[i]
     treatment_folder <- paste0(path,"/FuelCalc/","Plot Files/",tr,"_Plots")
     
     # Create the directory if it doesn't already exist
@@ -1885,7 +1885,7 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
   dir.create(outputs)
   
   # Make batch files
-  for (i in 1:length(unique(Snap_EX$Stratum))) {
+  for (i in seq_along(tr_names)) {
     TR <- tr_names[i]
     strata_df <- Fuels %>% filter(Stratum == TR)
     
@@ -1947,8 +1947,8 @@ soilmoist<-ifelse(moist =="VeryDry",5,ifelse(moist == "Dry", 10, ifelse(moist ==
     project_root = cfg$runtime$project_root,
     raw_dir = cfg$runtime$raw_dir,
     cutting = cutting,
-    strata = as.character(unique(Snap_EX$Stratum)),
-    strata_count = length(unique(Snap_EX$Stratum)),
+    strata = as.character(tr_names),
+    strata_count = length(tr_names),
     treatment_names = as.character(tr_names),
     fuelcalc_bc_bcd_files = list.files(file.path(path, "FuelCalcBC"), pattern = "\\.bcd$", full.names = TRUE),
     fuelcalc_bc_fcp_files = list.files(file.path(path, "FuelCalcBC"), pattern = "\\.fcp$", full.names = TRUE),

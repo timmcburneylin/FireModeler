@@ -73,6 +73,14 @@ step05 <- function(cfg, root) {
     ggsave(filename = filename, plot = plot_obj, width = width, height = height, dpi = 300, units = "in")
   }
 
+  ensure_species_columns <- function(df, species_cols) {
+    missing_cols <- setdiff(species_cols, names(df))
+    for (col in missing_cols) {
+      df[[col]] <- 0
+    }
+    df
+  }
+
   render_flextable <- function(df, title, header_color, body_color, filename) {
     species_cols <- setdiff(names(df), c("Stand Layer", "DBH Class"))
     table_obj <- df |>
@@ -188,6 +196,7 @@ step05 <- function(cfg, root) {
     if (!length(species_cols)) {
       stop("No species columns found in treatment description inputs for treatment ", treatment)
     }
+    CutSpec <- ensure_species_columns(CutSpec, species_cols)
 
     render_flextable(SPH, paste("Species (stems/ha):", treatment), "#4A7C3F", "#D6E8D0", file.path(treatment_folder, "SPHTable.png"))
 
@@ -245,6 +254,7 @@ step05 <- function(cfg, root) {
       mutate(`Stand Layer` = "L1", `DBH Class` = DBH.Class) |>
       dplyr::select(-DBH.Class) |>
       dplyr::select(`Stand Layer`, `DBH Class`, everything())
+    OS.VOL.mod <- ensure_species_columns(OS.VOL.mod, species_cols)
     OS.VOL.mod[is.na(OS.VOL.mod)] <- 0
     render_flextable(OS.VOL.mod, paste("Volume (m^3/ha):", treatment), "#8B1F1F", "#F5D6D6", file.path(treatment_folder, "VOLTable.png"))
 
@@ -277,6 +287,7 @@ step05 <- function(cfg, root) {
       mutate(`Stand Layer` = "L1", `DBH Class` = DBH.Class) |>
       dplyr::select(-DBH.Class) |>
       dplyr::select(`Stand Layer`, `DBH Class`, everything())
+    OS.BA.mod <- ensure_species_columns(OS.BA.mod, species_cols)
     OS.BA.mod[is.na(OS.BA.mod)] <- 0
     render_flextable(OS.BA.mod, paste("Basal Area (m^2/ha):", treatment), "#1F5F8B", "#D6E8F5", file.path(treatment_folder, "BATable.png"))
 
