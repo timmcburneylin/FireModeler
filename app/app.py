@@ -16,17 +16,6 @@ from PIL import Image
 if not hasattr(pd.Series, "iteritems"):
     pd.Series.iteritems = pd.Series.items
 
-try:
-    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
-    HAS_AGGRID = True
-    AGGRID_IMPORT_ERROR = ""
-except Exception as exc:
-    AgGrid = None
-    GridOptionsBuilder = None
-    GridUpdateMode = None
-    HAS_AGGRID = False
-    AGGRID_IMPORT_ERROR = str(exc)
-
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "config.json"
@@ -291,6 +280,15 @@ def step0_treatments(project_name: str, fallback: List[str] | None = None) -> Li
     return fallback
 
 
+def sync_process_treatment_names(cfg: Dict[str, Any], treatment_names: List[str]) -> None:
+    if not treatment_names:
+        return
+    process_cfg = cfg.setdefault("process_to_fuelcalc", {})
+    process_cfg["tr_names"] = treatment_names
+    save_config(cfg)
+    st.session_state.config_state = cfg
+
+
 def step2_weather_input(project_name: str, weather_code: int) -> Dict[str, Any]:
     if not project_name:
         return {"exists": False, "path": "", "name": ""}
@@ -459,6 +457,31 @@ def set_editable_template_df(csv_path: Path, df: pd.DataFrame) -> None:
     st.session_state[editable_template_state_key(csv_path)] = df.copy()
 
 
+def sync_data_editor_state(csv_path: Path, editor_key: str) -> None:
+    editor_state = st.session_state.get(editor_key)
+    if not isinstance(editor_state, dict):
+        return
+
+    state_key = editable_template_state_key(csv_path)
+    if state_key not in st.session_state:
+        st.session_state[state_key] = load_editable_csv(csv_path)
+
+    df = st.session_state[state_key].copy()
+    edited_rows = editor_state.get("edited_rows", {})
+    for row_idx, row_changes in edited_rows.items():
+        try:
+            row_pos = int(row_idx)
+        except (TypeError, ValueError):
+            continue
+        if row_pos < 0 or row_pos >= len(df) or not isinstance(row_changes, dict):
+            continue
+        for col_name, value in row_changes.items():
+            if col_name in df.columns:
+                df.at[df.index[row_pos], col_name] = value
+
+    st.session_state[state_key] = df
+
+
 def clear_editable_template_state(csv_path: Path) -> None:
     keys_to_clear = [
         editable_template_state_key(csv_path),
@@ -531,36 +554,15 @@ def compute_cutting_specs_summary(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([summary, totals_row], ignore_index=True)
 
 
-def render_editable_template_table(df: pd.DataFrame, editor_key: str) -> pd.DataFrame:
-    if HAS_AGGRID:
-        gb = GridOptionsBuilder.from_dataframe(df)
-        gb.configure_default_column(editable=True, resizable=True, sortable=False, filter=False)
-        gb.configure_grid_options(
-            rowSelection="single",
-            suppressRowClickSelection=False,
-            domLayout="normal",
-        )
-        gb.configure_selection(selection_mode="single", use_checkbox=True)
-        grid_response = AgGrid(
-            df,
-            key=f"{editor_key}_aggrid",
-            gridOptions=gb.build(),
-            update_mode=GridUpdateMode.VALUE_CHANGED | GridUpdateMode.SELECTION_CHANGED,
-            fit_columns_on_grid_load=False,
-            allow_unsafe_jscode=False,
-            height=min(max(220, 42 * (len(df) + 2)), 520),
-            theme="streamlit",
-            reload_data=False,
-        )
-        updated_df = pd.DataFrame(grid_response.get("data", df))
-        st.session_state[f"{editor_key}_selected_rows"] = grid_response.get("selected_rows", [])
-        return updated_df
-
+def render_editable_template_table(df: pd.DataFrame, editor_key: str, csv_path: Path) -> pd.DataFrame:
     return st.data_editor(
         df,
         key=editor_key,
-        use_container_width=False,
+        use_container_width=True,
+        height=min(max(220, 42 * (len(df) + 2)), 520),
         num_rows="fixed",
+        on_change=sync_data_editor_state,
+        args=(csv_path, editor_key),
     )
 
 
@@ -646,52 +648,26 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                     set_editable_template_df(csv_path, df)
                     trigger_rerun()
         with remove_row_input_col:
-            if HAS_AGGRID:
-                st.caption("Select a grid row below, then click remove.")
-            else:
-                st.selectbox(
-                    "Remove row",
-                    options=[""] + [label_text for label_text, _ in row_options],
-                    key=f"{editor_key}_drop_row_select",
-                    label_visibility="collapsed",
-                )
+            st.selectbox(
+                "Remove row",
+                options=[""] + [label_text for label_text, _ in row_options],
+                key=f"{editor_key}_drop_row_select",
+                label_visibility="collapsed",
+            )
         with remove_row_button_col:
-            if HAS_AGGRID:
-                if st.button("Remove row", key=f"{editor_key}_drop_selected_row", use_container_width=False):
-                    selected_rows = st.session_state.get(f"{editor_key}_selected_rows", []) or []
-                    if not selected_rows:
-                        st.warning("Select a row in the grid first.")
-                    else:
-                        selected_df = pd.DataFrame(selected_rows)
-                        match_mask = pd.Series([True] * len(df))
-                        target = selected_df.iloc[0].to_dict()
-                        for col, val in target.items():
-                            if col in df.columns:
-                                if pd.isna(val):
-                                    match_mask &= df[col].isna()
-                                else:
-                                    match_mask &= df[col].astype(str) == str(val)
-                        matches = df.index[match_mask]
-                        if len(matches) == 0:
-                            st.warning("Could not match the selected row in the table.")
-                        else:
-                            df = df.drop(matches[0]).reset_index(drop=True)
-                            set_editable_template_df(csv_path, df)
-                            trigger_rerun()
-            else:
-                if st.button("Remove row", key=f"{editor_key}_drop_row_manual", use_container_width=False):
-                    selected_label = st.session_state.get(f"{editor_key}_drop_row_select", "")
-                    match = next((idx for label_text, idx in row_options if label_text == selected_label), None)
-                    if match is None:
-                        st.warning("Choose a row to remove.")
-                    else:
-                        df = df.drop(df.index[match]).reset_index(drop=True)
-                        set_editable_template_df(csv_path, df)
-                        trigger_rerun()
+            if st.button("Remove row", key=f"{editor_key}_drop_row_manual", use_container_width=False):
+                selected_label = st.session_state.get(f"{editor_key}_drop_row_select", "")
+                match = next((idx for label_text, idx in row_options if label_text == selected_label), None)
+                if match is None:
+                    st.warning("Choose a row to remove.")
+                else:
+                    df = df.drop(df.index[match]).reset_index(drop=True)
+                    set_editable_template_df(csv_path, df)
+                    trigger_rerun()
 
     if is_cutting_specs:
         st.markdown("<div class='fm-template-wrap'>", unsafe_allow_html=True)
-        edited_df = render_editable_template_table(df, editor_key)
+        edited_df = render_editable_template_table(df, editor_key, csv_path)
         st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("**Overall Cutting Specs**")
         st.caption("Live summary from the current cutting specs inputs. This updates before save.")
@@ -702,8 +678,9 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
         )
     else:
         st.markdown("<div class='fm-template-wrap'>", unsafe_allow_html=True)
-        edited_df = render_editable_template_table(df, editor_key)
+        edited_df = render_editable_template_table(df, editor_key, csv_path)
         st.markdown("</div>", unsafe_allow_html=True)
+    edited_df = st.session_state.get(editable_template_state_key(csv_path), edited_df)
     set_editable_template_df(csv_path, edited_df)
     save_table_col1, save_table_col2 = st.columns([0.9, 2.1])
     with save_table_col1:
@@ -742,6 +719,24 @@ def step3_input_ready(project_name: str, weather_name: str, treatment_names: Lis
             return False
 
     return True
+
+
+def step3_hourly_weather_path(project_name: str, weather_name: str) -> Path:
+    return project_data_dir(project_name) / "raw" / "Weather" / "raw" / f"{weather_name}_Hourly_Weather.csv"
+
+
+def step3_weather_default(project_name: str, step2_weather_name: str, step3_cfg: Dict[str, Any]) -> str:
+    saved_name = str(step3_cfg.get("weather_name", "")).strip()
+    step2_name = str(step2_weather_name).strip()
+    if not saved_name:
+        return step2_name
+    if not project_name or not step2_name or saved_name == step2_name:
+        return saved_name
+    saved_exists = step3_hourly_weather_path(project_name, saved_name).exists()
+    step2_exists = step3_hourly_weather_path(project_name, step2_name).exists()
+    if step2_exists and not saved_exists:
+        return step2_name
+    return saved_name
 
 
 def run_pipeline(steps: List[str] | None = None) -> Dict[str, Any]:
@@ -948,7 +943,10 @@ def flatten_manifest(manifest: Dict[str, Any]) -> pd.DataFrame:
                     "path": item.get("path"),
                 }
             )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if "size_bytes" in df.columns:
+        df["size_bytes"] = pd.to_numeric(df["size_bytes"], errors="coerce").astype("Int64")
+    return df
 
 
 def show_json_file(path_str: str, title: str) -> None:
@@ -1323,7 +1321,22 @@ with main_col:
                 st.dataframe(missing_step0[["label", "expected_name", "relative_path"]], use_container_width=True)
         show_step_result("step0_snap_to_process", "Project Setup")
 
-    step05_treatment_names = step0_treatments(current_project, process_cfg.get("tr_names", ["A", "B", "C"]))
+    generated_treatment_names = step0_treatments(current_project, ["A", "B", "C"])
+    configured_treatment_names = parse_treatment_names(", ".join(process_cfg.get("tr_names", []))) if process_cfg.get("tr_names") else []
+    invalid_configured_names = [
+        name for name in configured_treatment_names
+        if generated_treatment_names and name not in generated_treatment_names
+    ]
+    treatment_names_seed = generated_treatment_names if invalid_configured_names else (configured_treatment_names or generated_treatment_names)
+    treatment_scope_text = st.text_input(
+        "Treatments to process",
+        value=", ".join(treatment_names_seed),
+        help="Comma-separated treatment names matching the generated Stand_StockTables folders.",
+    )
+    step05_treatment_names = parse_treatment_names(treatment_scope_text) or treatment_names_seed
+    if current_project and step05_treatment_names != process_cfg.get("tr_names"):
+        sync_process_treatment_names(cfg, step05_treatment_names)
+        process_cfg = cfg.get("process_to_fuelcalc", {})
     template_csvs = treatment_template_csvs(current_project, step05_treatment_names)
     if step05_treatment_names:
         st.markdown("**Editable Treatment Templates**")
@@ -1408,7 +1421,7 @@ with main_col:
         except Exception as exc:
             st.error(f"Failed to open folder: {exc}")
 
-    treatment_names_default = process_cfg.get("tr_names", ["A", "B", "C"])
+    treatment_names_default = step05_treatment_names
     treatment_names_text = st.text_input(
         "List treatment names with comma separation",
         value=", ".join(treatment_names_default),
@@ -1835,7 +1848,24 @@ with main_col:
             )
         )
         step3_num_weathers = int(st.number_input("Number of weather days", min_value=1, value=int(step3_cfg.get("num_weathers", 250)), step=1, key="step3_num_weathers"))
-        step3_weather_name = st.text_input("Weather name for Step 3", value=str(step3_cfg.get("weather_name", step2_weather_name)), key="step3_weather_name")
+        default_step3_weather_name = step3_weather_default(current_project, step2_weather_name, step3_cfg)
+        saved_step3_weather_name = str(step3_cfg.get("weather_name", "")).strip()
+        if (
+            current_project
+            and default_step3_weather_name != saved_step3_weather_name
+            and st.session_state.get("step3_weather_name", saved_step3_weather_name) == saved_step3_weather_name
+        ):
+            st.session_state["step3_weather_name"] = default_step3_weather_name
+            step3_cfg["weather_name"] = default_step3_weather_name
+            cfg["firemodel_results"] = step3_cfg
+            save_config(cfg)
+            st.session_state.config_state = cfg
+        step3_weather_name = st.text_input("Weather name for Step 3", value=default_step3_weather_name, key="step3_weather_name")
+        if step2_weather_name and step3_weather_name.strip() != step2_weather_name.strip():
+            st.warning(
+                f"Step 2 generated weather outputs for `{step2_weather_name}`, but Step 3 is set to `{step3_weather_name}`. "
+                "Use the Step 2 station name unless you have a separate matching hourly weather output file."
+            )
         step3_season = st.selectbox("Season", options=["Spring", "Summer", "Winter"], index=["Spring", "Summer", "Winter"].index(str(step3_cfg.get("season", "Summer"))) if str(step3_cfg.get("season", "Summer")) in ["Spring", "Summer", "Winter"] else 1, key="step3_season")
         step3_advanced_models = st.checkbox(
             "Plot advanced models",

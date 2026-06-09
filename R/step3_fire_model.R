@@ -230,6 +230,12 @@ CrownFireModel <- as_char_vec(step_cfg$crown_fire_model, c("Perrakis","Perrakis"
 NumWeathers <- as.numeric(step_cfg$num_weathers %||% 150)
 WeatherName <- as.character(step_cfg$weather_name %||% "MERRITT 2 HUB")
 Season <- as.character(step_cfg$season %||% "Summer")
+process_cfg <- cfg$process_to_fuelcalc %||% list()
+treatment_names <- as_char_vec(process_cfg$tr_names, unique(Snap_EX$Stratum))
+treatment_names <- treatment_names[nzchar(treatment_names)]
+if (!length(treatment_names)) {
+  stop("No treatments are configured for Step 3.")
+}
 
 #Plotting
 AdvancedModels <- isTRUE(step_cfg$advanced_models %||% TRUE)
@@ -274,7 +280,7 @@ academic_theme <- theme_bw(base_size = 12, base_family = "serif") +
 #Create input datasets:------------------------------------------------------
 #Load outputs created from fuelcalc and set up cleanly:
   #SET NUMBER OF TREATMENTS
-  treatments<- unique(Snap_EX$Stratum)
+  treatments<- treatment_names
 
 str_lists<-list()
 fuel_lists<-list()
@@ -385,7 +391,7 @@ write.csv(STR_ALL_out,paste0(path,"/FuelCalc/Outputs/All_Treatments_StandStructu
 #write project shorthand
 #Load Pruning
 prune_vals<-pruneVECT
-strata<-unique(Snap_EX$Stratum)
+strata<-treatment_names
 
 
 #SET UP DATAFRAMES
