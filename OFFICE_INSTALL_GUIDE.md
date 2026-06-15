@@ -114,6 +114,17 @@ Normal launch command:
 .\run_ui_windows.bat
 ```
 
+## Installing Updates
+
+Updates do not require a GitHub account because the repository is public.
+
+1. Close FireModeler.
+2. Double-click `update_firemodeler.bat` in the FireModeler folder.
+3. Wait for the successful update message.
+4. Reopen FireModeler with `run_ui_windows.bat`.
+
+The updater changes only Git-tracked application files. Local projects, `config/config.json`, generated outputs, the virtual environment, and manually supplied template files remain in place. If an application file was edited manually on that computer, the updater stops and reports the change instead of overwriting it.
+
 ## Notes
 
 - This project is sensitive to Python and R version drift.

@@ -49,6 +49,14 @@ Python UI:
 3. In the UI, set:
    - `Project Name`: used as both the display label and the raw file prefix such as `TR_LionsBurn`
 
+Windows updates:
+
+1. Close FireModeler.
+2. Double-click `update_firemodeler.bat`.
+3. Reopen FireModeler after the update succeeds.
+
+The updater downloads the public `main` branch without requiring a GitHub login. It preserves ignored local data including `projects/`, `config/config.json`, virtual environments, generated outputs, and manual template files. It stops rather than overwriting tracked application files that were edited locally.
+
 Git/GitHub workflow:
 
 1. This repo tracks code/config/templates, not generated outputs or large raw data.
