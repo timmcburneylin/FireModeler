@@ -127,6 +127,100 @@ step0 <- function(cfg, root) {
     }
   }
 
+  repair_understory_heights <- function(df) {
+    height_col <- "Height..0.1m."
+    required <- c("Stratum", "Layer", "SPP", height_col)
+    if (!all(required %in% names(df))) return(df)
+
+    df[[height_col]] <- suppressWarnings(as.numeric(df[[height_col]]))
+    df[[height_col]][!is.finite(df[[height_col]]) | df[[height_col]] <= 0] <- NA_real_
+    layer_defaults <- c(
+      "Layer 4 (<1.3m)" = 1,
+      "Layer 3 (2.5-7.49)" = 5,
+      "Layer 2 (7.5-12.49)" = 10,
+      "Layer 1 (12.5-17.5)" = 15
+    )
+
+    missing_rows <- which(is.na(df[[height_col]]))
+    for (row in missing_rows) {
+      same_species <- !is.na(df$Stratum) & !is.na(df$Layer) & !is.na(df$SPP) &
+        !is.na(df$Stratum[row]) & !is.na(df$Layer[row]) & !is.na(df$SPP[row]) &
+        df$Stratum == df$Stratum[row] &
+        df$Layer == df$Layer[row] &
+        df$SPP == df$SPP[row] &
+        !is.na(df[[height_col]])
+      donors <- df[[height_col]][same_species]
+
+      if (!length(donors)) {
+        same_layer <- !is.na(df$Stratum) & !is.na(df$Layer) &
+          !is.na(df$Stratum[row]) & !is.na(df$Layer[row]) &
+          df$Stratum == df$Stratum[row] &
+          df$Layer == df$Layer[row] &
+          !is.na(df[[height_col]])
+        donors <- df[[height_col]][same_layer]
+      }
+
+      if (length(donors)) {
+        df[[height_col]][row] <- stats::median(donors, na.rm = TRUE)
+      } else {
+        df[[height_col]][row] <- unname(layer_defaults[df$Layer[row]])
+      }
+    }
+
+    unresolved <- which(is.na(df[[height_col]]) | df[[height_col]] <= 0)
+    if (length(unresolved)) {
+      stop(
+        "Unable to repair non-positive understory heights at rows: ",
+        paste(unresolved, collapse = ", ")
+      )
+    }
+    df
+  }
+
+  repair_overstory_heights <- function(df) {
+    height_col <- "Total.Height..m."
+    required <- c("Stratum", "Spp", height_col)
+    if (!all(required %in% names(df))) return(df)
+
+    df[[height_col]] <- suppressWarnings(as.numeric(df[[height_col]]))
+    df[[height_col]][!is.finite(df[[height_col]]) | df[[height_col]] <= 0] <- NA_real_
+    missing_rows <- which(is.na(df[[height_col]]))
+
+    for (row in missing_rows) {
+      same_species <- !is.na(df$Stratum) & !is.na(df$Spp) &
+        !is.na(df$Stratum[row]) & !is.na(df$Spp[row]) &
+        df$Stratum == df$Stratum[row] &
+        df$Spp == df$Spp[row] &
+        !is.na(df[[height_col]])
+      donors <- df[[height_col]][same_species]
+
+      if (!length(donors)) {
+        same_stratum <- !is.na(df$Stratum) & !is.na(df$Stratum[row]) &
+          df$Stratum == df$Stratum[row] & !is.na(df[[height_col]])
+        donors <- df[[height_col]][same_stratum]
+      }
+
+      if (length(donors)) {
+        df[[height_col]][row] <- stats::median(donors, na.rm = TRUE)
+      }
+    }
+
+    unresolved <- which(is.na(df[[height_col]]) | df[[height_col]] <= 0)
+    if (length(unresolved)) {
+      details <- paste0(
+        "plot ", df$Plot..[unresolved], " / species ", df$Spp[unresolved]
+      )
+      stop(
+        "Unable to repair non-positive overstory heights: ",
+        paste(details, collapse = "; ")
+      )
+    }
+    df
+  }
+
+  Snap_US <- repair_understory_heights(Snap_US)
+  Snap_OS <- repair_overstory_heights(Snap_OS)
+
   # Normalize understory species codes.
   if ("SPP" %in% names(Snap_US)) {
     valid_species <- c("Ba","Bl","Bg","Bb","Cw","Fd","Hw","T","Pl","Sx","Sb","Sw","Lw","Lt","Pw","Yc","Fdi","Fdc","Py","Pli","Act","Acb","Ac","At","Ep","DP","DU","Dead","Dr","D","Mb","Hm","Ax","Bp","Dg","La","Pa","Pf","Pj","Plc","Pli","Pw","Sn","Ss")

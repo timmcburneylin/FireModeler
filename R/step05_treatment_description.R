@@ -81,6 +81,54 @@ step05 <- function(cfg, root) {
     df
   }
 
+  cutting_percentages <- function(cut_spec, species_cols, treatment) {
+    desc_cols <- c("Stand Layer", "DBH Class")
+    pct_cols <- names(cut_spec)[
+      endsWith(names(cut_spec), ".%") | endsWith(names(cut_spec), "..")
+    ]
+    if (!length(pct_cols)) {
+      stop(
+        "Cutting specs has no percent-cut columns for treatment ", treatment,
+        ". Expected headers such as Fd.% or Fd.."
+      )
+    }
+    pct_species <- sub("\\.%$", "", pct_cols)
+    pct_species <- sub("\\.\\.$", "", pct_species)
+
+    duplicate_species <- unique(pct_species[duplicated(pct_species)])
+    if (length(duplicate_species)) {
+      stop(
+        "Cutting specs has duplicate percent columns for treatment ", treatment,
+        ": ", paste(duplicate_species, collapse = ", ")
+      )
+    }
+
+    pct_spec <- cut_spec[, c(desc_cols, pct_cols), drop = FALSE]
+    names(pct_spec) <- c(desc_cols, pct_species)
+    pct_spec <- ensure_species_columns(pct_spec, species_cols)
+    pct_spec <- pct_spec[, c(desc_cols, species_cols), drop = FALSE]
+
+    pct_spec[species_cols] <- lapply(pct_spec[species_cols], function(x) {
+      values <- suppressWarnings(as.numeric(x))
+      values[is.na(values)] <- 0
+      values
+    })
+
+    invalid <- vapply(
+      pct_spec[species_cols],
+      function(x) any(x < 0 | x > 100),
+      logical(1)
+    )
+    if (any(invalid)) {
+      stop(
+        "Cutting percentages must be between 0 and 100 for treatment ", treatment,
+        ". Check: ", paste(names(invalid)[invalid], collapse = ", ")
+      )
+    }
+
+    pct_spec
+  }
+
   render_flextable <- function(df, title, header_color, body_color, filename) {
     species_cols <- setdiff(names(df), c("Stand Layer", "DBH Class"))
     table_obj <- df |>
@@ -130,7 +178,8 @@ step05 <- function(cfg, root) {
     OS.BA <- read.csv(required_paths[["OS.BA"]], stringsAsFactors = FALSE)
     OS.VOL <- read.csv(required_paths[["OS.VOL"]], stringsAsFactors = FALSE)
     US.SPH <- read.csv(required_paths[["US.SPH"]], stringsAsFactors = FALSE)
-    CutSpec <- read.csv(required_paths[["CutSpec"]], stringsAsFactors = FALSE)
+    CutSpec <- read.csv(required_paths[["CutSpec"]], check.names = FALSE, stringsAsFactors = FALSE)
+    names(CutSpec) <- trimws(names(CutSpec))
 
     if (!("Layer" %in% names(US.SPH)) && "DBH.Class" %in% names(US.SPH)) {
       US.SPH <- US.SPH |> dplyr::rename(Layer = DBH.Class)
@@ -196,7 +245,7 @@ step05 <- function(cfg, root) {
     if (!length(species_cols)) {
       stop("No species columns found in treatment description inputs for treatment ", treatment)
     }
-    CutSpec <- ensure_species_columns(CutSpec, species_cols)
+    CutPct <- cutting_percentages(CutSpec, species_cols, treatment)
 
     render_flextable(SPH, paste("Species (stems/ha):", treatment), "#4A7C3F", "#D6E8D0", file.path(treatment_folder, "SPHTable.png"))
 
@@ -219,7 +268,7 @@ step05 <- function(cfg, root) {
       academic_theme
     save_plot(p_sph, file.path(treatment_folder, "SPHPlot.png"))
 
-    CutSpec_long <- CutSpec |>
+    CutSpec_long <- CutPct |>
       tidyr::pivot_longer(cols = all_of(species_cols), names_to = "Species", values_to = "PctCut")
 
     SPH_long <- SPH |>
