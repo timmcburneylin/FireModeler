@@ -81,6 +81,20 @@ step05 <- function(cfg, root) {
     df
   }
 
+  coerce_numeric_columns <- function(df, id_cols) {
+    value_cols <- setdiff(names(df), id_cols)
+    df[value_cols] <- lapply(df[value_cols], function(x) {
+      x <- as.character(x)
+      x <- gsub("\u00A0", "", x, fixed = TRUE)
+      x <- trimws(x)
+      x[x %in% c("", "NA", "N/A", "na", "n/a", "NaN")] <- NA_character_
+      values <- suppressWarnings(as.numeric(x))
+      values[is.na(values)] <- 0
+      values
+    })
+    df
+  }
+
   cutting_percentages <- function(cut_spec, species_cols, treatment) {
     desc_cols <- c("Stand Layer", "DBH Class")
     pct_cols <- names(cut_spec)[
@@ -194,6 +208,10 @@ step05 <- function(cfg, root) {
     if ("Dead" %in% colnames(US.SPH)) {
       US.SPH <- US.SPH |> dplyr::rename(DP = Dead)
     }
+    OS.SPH <- coerce_numeric_columns(OS.SPH, "DBH.Class")
+    OS.BA <- coerce_numeric_columns(OS.BA, "DBH.Class")
+    OS.VOL <- coerce_numeric_columns(OS.VOL, "DBH.Class")
+    US.SPH <- coerce_numeric_columns(US.SPH, "Layer")
 
     SPHtemp <- data.frame(
       "Stand Layer" = c("L4", "L3", "L2", "L1", "L1", "L1", "L1", "L1", "L1"),
@@ -245,6 +263,7 @@ step05 <- function(cfg, root) {
     if (!length(species_cols)) {
       stop("No species columns found in treatment description inputs for treatment ", treatment)
     }
+    SPH <- coerce_numeric_columns(SPH, c("Stand Layer", "DBH Class"))
     CutPct <- cutting_percentages(CutSpec, species_cols, treatment)
 
     render_flextable(SPH, paste("Species (stems/ha):", treatment), "#4A7C3F", "#D6E8D0", file.path(treatment_folder, "SPHTable.png"))
@@ -304,7 +323,7 @@ step05 <- function(cfg, root) {
       dplyr::select(-DBH.Class) |>
       dplyr::select(`Stand Layer`, `DBH Class`, everything())
     OS.VOL.mod <- ensure_species_columns(OS.VOL.mod, species_cols)
-    OS.VOL.mod[is.na(OS.VOL.mod)] <- 0
+    OS.VOL.mod <- coerce_numeric_columns(OS.VOL.mod, c("Stand Layer", "DBH Class"))
     render_flextable(OS.VOL.mod, paste("Volume (m^3/ha):", treatment), "#8B1F1F", "#F5D6D6", file.path(treatment_folder, "VOLTable.png"))
 
     VOL_long <- OS.VOL.mod |>
@@ -337,7 +356,7 @@ step05 <- function(cfg, root) {
       dplyr::select(-DBH.Class) |>
       dplyr::select(`Stand Layer`, `DBH Class`, everything())
     OS.BA.mod <- ensure_species_columns(OS.BA.mod, species_cols)
-    OS.BA.mod[is.na(OS.BA.mod)] <- 0
+    OS.BA.mod <- coerce_numeric_columns(OS.BA.mod, c("Stand Layer", "DBH Class"))
     render_flextable(OS.BA.mod, paste("Basal Area (m^2/ha):", treatment), "#1F5F8B", "#D6E8F5", file.path(treatment_folder, "BATable.png"))
 
     BA_long <- OS.BA.mod |>

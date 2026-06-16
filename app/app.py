@@ -4,13 +4,13 @@ import json
 import os
 import shutil
 import subprocess
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 
 if not hasattr(pd.Series, "iteritems"):
@@ -72,6 +72,20 @@ def trigger_rerun() -> None:
         st.experimental_rerun()
 
 
+def schedule_browser_refresh(seconds: int = 2) -> None:
+    delay_ms = max(1, int(seconds)) * 1000
+    components.html(
+        f"""
+        <script>
+        window.setTimeout(function() {{
+            window.parent.location.reload();
+        }}, {delay_ms});
+        </script>
+        """,
+        height=0,
+    )
+
+
 def list_projects() -> List[str]:
     if not PROJECTS_DIR.exists():
         return []
@@ -92,6 +106,10 @@ def project_manifest_path(project_name: str) -> Path:
 
 def project_status_path(project_name: str) -> Path:
     return project_data_dir(project_name) / "outputs" / "run_status" / "pipeline_status.json"
+
+
+def project_async_job_path(project_name: str, run_key: str) -> Path:
+    return project_data_dir(project_name) / "outputs" / "run_status" / f"{run_key}_job.json"
 
 
 def project_step3_progress_path(project_name: str) -> Path:
@@ -457,6 +475,15 @@ def set_editable_template_df(csv_path: Path, df: pd.DataFrame) -> None:
     st.session_state[editable_template_state_key(csv_path)] = df.copy()
 
 
+def flush_editable_csv_states(csv_groups: Dict[str, List[tuple[str, Path]]]) -> None:
+    for files_for_treatment in csv_groups.values():
+        for _, csv_path in files_for_treatment:
+            state_key = editable_template_state_key(csv_path)
+            df = st.session_state.get(state_key)
+            if isinstance(df, pd.DataFrame):
+                save_editable_csv(csv_path, df)
+
+
 def sync_data_editor_state(csv_path: Path, editor_key: str) -> None:
     editor_state = st.session_state.get(editor_key)
     if not isinstance(editor_state, dict):
@@ -480,6 +507,7 @@ def sync_data_editor_state(csv_path: Path, editor_key: str) -> None:
                 df.at[df.index[row_pos], col_name] = value
 
     st.session_state[state_key] = df
+    save_editable_csv(csv_path, df)
 
 
 def clear_editable_template_state(csv_path: Path) -> None:
@@ -601,6 +629,7 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                 else:
                     df[new_col] = ""
                     set_editable_template_df(csv_path, df)
+                    save_editable_csv(csv_path, df)
                     trigger_rerun()
 
         add_row_input_col, add_row_button_col = st.columns([2.2, 0.6])
@@ -619,6 +648,7 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                     blank_row[first_col] = row_name
                 df = pd.concat([df, pd.DataFrame([blank_row])], ignore_index=True)
                 set_editable_template_df(csv_path, df)
+                save_editable_csv(csv_path, df)
                 trigger_rerun()
 
         removable_columns = [c for c in df.columns if c not in ("DBH.Class", "Stand.Layer")]
@@ -646,6 +676,7 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                 else:
                     df = df.drop(columns=[drop_col])
                     set_editable_template_df(csv_path, df)
+                    save_editable_csv(csv_path, df)
                     trigger_rerun()
         with remove_row_input_col:
             st.selectbox(
@@ -663,6 +694,7 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                 else:
                     df = df.drop(df.index[match]).reset_index(drop=True)
                     set_editable_template_df(csv_path, df)
+                    save_editable_csv(csv_path, df)
                     trigger_rerun()
 
     if is_cutting_specs:
@@ -774,6 +806,58 @@ def run_pipeline(steps: List[str] | None = None) -> Dict[str, Any]:
     }
 
 
+def pid_is_running(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return str(pid) in result.stdout
+        os.kill(int(pid), 0)
+        return True
+    except Exception:
+        return False
+
+
+def active_async_job_path(run_key: str) -> Path | None:
+    project_name = str(st.session_state.get("config_state", {}).get("project_name", "")).strip()
+    if not project_name:
+        return None
+    return project_async_job_path(project_name, run_key)
+
+
+def load_async_job_from_disk(run_key: str) -> Dict[str, Any] | None:
+    job_path = active_async_job_path(run_key)
+    if not job_path or not job_path.exists():
+        return None
+    job = load_json(job_path)
+    if not job or job.get("_error"):
+        return None
+    job["job_state_path"] = str(job_path)
+    return job
+
+
+def infer_async_returncode(run_key: str) -> int:
+    project_name = str(st.session_state.get("config_state", {}).get("project_name", "")).strip()
+    if project_name:
+        status_data = load_json(project_status_path(project_name))
+        step_status = status_data.get("steps", {}).get(run_key, {}) if status_data and not status_data.get("_error") else {}
+        if step_status.get("success") is True:
+            return 0
+        if step_status.get("error") not in (None, "", "NA"):
+            return 1
+        if run_key == "step3_fire_model":
+            progress_data = load_json(project_step3_progress_path(project_name))
+            if progress_data.get("status") == "completed":
+                return 0
+    return 1
+
+
 def start_pipeline_async(steps: List[str], run_key: str, log_dir: Path) -> None:
     rscript = resolve_rscript()
     if not rscript:
@@ -797,21 +881,38 @@ def start_pipeline_async(steps: List[str], run_key: str, log_dir: Path) -> None:
     proc = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout_handle, stderr=stderr_handle, text=True)
     stdout_handle.close()
     stderr_handle.close()
-    st.session_state[f"{run_key}_job"] = {
-        "proc": proc,
+    job_state_path = log_dir / f"{run_key}_job.json"
+    job_payload = {
+        "pid": proc.pid,
         "stdout_path": str(stdout_path),
         "stderr_path": str(stderr_path),
         "ran_at": datetime.now().isoformat(timespec="seconds"),
         "steps": steps,
     }
+    job_state_path.write_text(json.dumps(job_payload, indent=2), encoding="utf-8")
+    st.session_state[f"{run_key}_job"] = {
+        "proc": proc,
+        "stdout_path": str(stdout_path),
+        "stderr_path": str(stderr_path),
+        "ran_at": job_payload["ran_at"],
+        "steps": steps,
+        "pid": proc.pid,
+        "job_state_path": str(job_state_path),
+    }
 
 
 def sync_async_pipeline_run(run_key: str) -> Dict[str, Any] | None:
-    job = st.session_state.get(f"{run_key}_job")
+    job = st.session_state.get(f"{run_key}_job") or load_async_job_from_disk(run_key)
     if not job:
         return None
-    proc = job["proc"]
-    returncode = proc.poll()
+    proc = job.get("proc")
+    if proc is not None:
+        returncode = proc.poll()
+    elif pid_is_running(job.get("pid")):
+        returncode = None
+    else:
+        returncode = infer_async_returncode(run_key)
+
     if returncode is None:
         return {"status": "running", **job}
 
@@ -824,8 +925,16 @@ def sync_async_pipeline_run(run_key: str) -> Dict[str, Any] | None:
         "stderr": stderr,
         "ran_at": job["ran_at"],
     }
+    st.session_state.last_step_action = run_key
     st.session_state.last_run = result
-    del st.session_state[f"{run_key}_job"]
+    if f"{run_key}_job" in st.session_state:
+        del st.session_state[f"{run_key}_job"]
+    job_state_path = job.get("job_state_path")
+    if job_state_path and Path(job_state_path).exists():
+        try:
+            Path(job_state_path).unlink()
+        except OSError:
+            pass
     return result
 
 
@@ -1078,25 +1187,15 @@ def step3_run_completed_in_session() -> bool:
 
 
 def render_step3_runtime(project_name: str, title: str) -> None:
-    placeholder = st.empty()
-    completion_announced = False
+    step3_async_state = sync_async_pipeline_run("step3_fire_model")
+    show_step_result("step3_fire_model", title)
+    show_step3_progress(project_name)
 
-    while True:
-        step3_async_state = sync_async_pipeline_run("step3_fire_model")
-        with placeholder.container():
-            show_step_result("step3_fire_model", title)
-            show_step3_progress(project_name)
-            if step3_async_state and step3_async_state.get("status") == "running":
-                st.caption("Updating Step 3 progress automatically.")
-            elif step3_run_completed_in_session():
-                st.success("Fire modeling results completed.")
-                completion_announced = True
-
-        if not step3_async_state or step3_async_state.get("status") != "running":
-            break
-        time.sleep(2)
-
-    if completion_announced:
+    if step3_async_state and step3_async_state.get("status") == "running":
+        st.caption("Updating Step 3 progress automatically.")
+        schedule_browser_refresh(2)
+    elif step3_run_completed_in_session():
+        st.success("Fire modeling results completed.")
         st.session_state["step3_completion_announced"] = True
 
 
@@ -1281,6 +1380,11 @@ step0_status = status.get("steps", {}).get("step0_snap_to_process", {}).get("suc
 step1_ready = step1_input_ready(current_project, step0_status)
 
 
+if current_project and step3_running:
+    st.info("Step 3 is running. Progress updates automatically every few seconds.")
+    show_step3_progress(current_project)
+
+
 if st.session_state.last_run:
     with st.expander("Last Pipeline Run Logs", expanded=False):
         st.write(f"Ran at: {st.session_state.last_run.get('ran_at')}")
@@ -1348,19 +1452,21 @@ with main_col:
                     render_csv_editor_card(label, csv_path, f"template_editor_{treatment_name}_{csv_path.stem}")
 
     st.subheader("Cutting Specs")
-    st.caption("Generate and edit cutting specs separately from the stand tables. These richer tables will be trimmed automatically before backend use.")
+    st.caption("Refresh cutting-spec table structure from the stand tables, then edit the percent-cut columns. Existing percent cuts are preserved when the table is refreshed.")
     step025_ready = step025_input_ready(current_project, step05_treatment_names)
     step025_help = (
         "Run Project Setup first so the treatment folders and template CSVs exist for each treatment."
         if not step025_ready
-        else "Generate expanded cutting specs tables from the current treatment templates."
+        else "Refresh expanded cutting specs tables from the current treatment templates while preserving existing percent cuts."
     )
     cutting_spec_files = cutting_specs_csvs(current_project, step05_treatment_names)
     step025_run_col1, step025_run_col2 = st.columns([1, 1])
     with step025_run_col1:
-        st.caption("Run this after saving any template-table edits so cutting specs reflect the latest backend CSVs.")
+        st.caption("Run this after changing species/count columns in the stand tables. Percent-cut columns are preserved.")
     with step025_run_col2:
-        if st.button("Generate Cutting Specs", use_container_width=True, disabled=not step025_ready, help=step025_help):
+        if st.button("Refresh Cutting Specs", use_container_width=True, disabled=not step025_ready, help=step025_help):
+            flush_editable_csv_states(template_csvs)
+            flush_editable_csv_states(cutting_spec_files)
             st.session_state.last_step_action = "step025_cuttingspecs"
             st.session_state.last_run = run_pipeline(["step025_cuttingspecs"])
             refreshed_cutting_specs = cutting_specs_csvs(current_project, step05_treatment_names)
@@ -1390,6 +1496,8 @@ with main_col:
         st.caption("This step uses the treatment folders and editable CSV templates created during Project Setup.")
     with step05_run_col:
         if st.button("Run Treatment Description", use_container_width=True, disabled=not step05_ready, help=step05_help):
+            flush_editable_csv_states(template_csvs)
+            flush_editable_csv_states(cutting_spec_files)
             st.session_state.last_step_action = "step05_treatment_description"
             st.session_state.last_run = run_pipeline(["step05_treatment_description"])
             trigger_rerun()
@@ -1565,7 +1673,7 @@ with main_col:
                         options=["Humid", "Arid"],
                         index=["Humid", "Arid"].index(str(climate_values[i])) if str(climate_values[i]) in ["Humid", "Arid"] else 1,
                         key=f"climate_{i}",
-                        help="For areas outside of Caribou, Kamloops, and Southeast use Humid. For microclimate conditions of your site consider the moisture regime and weather fires are likely under more humid conditions or if fuel dryness is a necessity for fire behaviour.",
+                        help="For areas outside of Caribou, Kamloops, and Southeast use Humid. For microclimate conditions of your site consider the moisture regime and whether fires are likely under more humid conditions or if fuel dryness is a necessity for fire behaviour.",
                     )
                 )
 

@@ -142,7 +142,22 @@ read_cutting_specs_for_firemodel <- function(cutting_specs) {
 
   cuts <- cuts[, c(desc_cols, pct_cols), drop = FALSE]
   names(cuts) <- sub("(\\.\\%|\\.\\.)$", "", names(cuts))
+  cuts <- coerce_numeric_columns(cuts, desc_cols)
   cuts
+}
+
+coerce_numeric_columns <- function(df, id_cols) {
+  value_cols <- setdiff(names(df), id_cols)
+  df[value_cols] <- lapply(df[value_cols], function(x) {
+    x <- as.character(x)
+    x <- gsub("\u00A0", "", x, fixed = TRUE)
+    x <- trimws(x)
+    x[x %in% c("", "NA", "N/A", "na", "n/a", "NaN")] <- NA_character_
+    values <- suppressWarnings(as.numeric(x))
+    values[is.na(values)] <- 0
+    values
+  })
+  df
 }
 
 dbh_class_midpoint <- function(dbh_class) {
@@ -577,6 +592,9 @@ for(j in 1:length(strata)){
     if (!("Layer" %in% names(US_Ht)) && "DBH.Class" %in% names(US_Ht)) {
       US_Ht <- US_Ht |> dplyr::rename(Layer = DBH.Class)
     }
+    OS_SPH <- coerce_numeric_columns(OS_SPH, "DBH.Class")
+    US_SPH <- coerce_numeric_columns(US_SPH, "Layer")
+    US_Ht <- coerce_numeric_columns(US_Ht, "Layer")
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation
     OS_SPH<-OS_SPH %>%
       filter(DBH.Class != "Total") 
@@ -745,6 +763,9 @@ for(j in 1:length(strata)){
     if (!("Layer" %in% names(US_Ht)) && "DBH.Class" %in% names(US_Ht)) {
       US_Ht <- US_Ht |> dplyr::rename(Layer = DBH.Class)
     }
+    OS_SPH <- coerce_numeric_columns(OS_SPH, "DBH.Class")
+    US_SPH <- coerce_numeric_columns(US_SPH, "Layer")
+    US_Ht <- coerce_numeric_columns(US_Ht, "Layer")
     #filter out total and Dead column, and remove total layer and layer 4 for crown area calculation
     OS_SPH<-OS_SPH %>%
       filter(DBH.Class != "Total") 
@@ -1409,7 +1430,16 @@ for(P in unique(strata_data$Period)){
         RothModel<-strata_input$Fueltype_US_FC  
       }else{
         BestUSModel<-find_best_model(Plot_fuels,Density=Density, SurfFuelType=strata_input$SurfFuel, ForestType=strata_input$Forest_Type)
-        RothModel<-BestUSModel$Fueltype_US_FC
+        RothModel<-BestUSModel$FuelModel
+      }
+      if (length(RothModel) == 0 || is.na(RothModel) || !nzchar(as.character(RothModel))) {
+        stop(
+          "Unable to select a Rothermel fuel model for stratum ",
+          STRATA,
+          " during ",
+          P,
+          ". Check FuelCalc fuel model output or Step 3 forest/surface fuel settings."
+        )
       }
       
       #account for OG 13
