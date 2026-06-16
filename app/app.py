@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import shutil
 import subprocess
+import threading
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List
+from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
@@ -460,6 +465,123 @@ def save_editable_csv(path: Path, df: pd.DataFrame) -> None:
     df.to_csv(path, index=False)
 
 
+AUTOSAVE_SERVER_PORT = 8765
+AUTOSAVE_ENDPOINT_PATH = "/cell-v2"
+AUTOSAVE_LOCK = threading.Lock()
+AUTOSAVE_SERVER_STARTED = False
+
+
+def csv_autosave_token(csv_path: Path) -> str:
+    root = ROOT.resolve()
+    resolved = csv_path.resolve()
+    try:
+        relative_path = resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"Autosave path must be inside {root}") from exc
+    token_bytes = str(relative_path).replace("\\", "/").encode("utf-8")
+    return base64.urlsafe_b64encode(token_bytes).decode("ascii")
+
+
+def csv_path_from_autosave_token(token: str) -> Path:
+    try:
+        padded_token = token + ("=" * (-len(token) % 4))
+        relative_text = base64.urlsafe_b64decode(padded_token.encode("ascii")).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise PermissionError("invalid autosave token") from exc
+
+    if not relative_text or Path(relative_text).is_absolute():
+        raise PermissionError("invalid autosave path")
+
+    root = ROOT.resolve()
+    resolved = (root / relative_text).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise PermissionError("autosave path is outside FireModeler") from exc
+
+    if resolved.suffix.lower() != ".csv":
+        raise PermissionError("autosave only supports CSV files")
+
+    return resolved
+
+
+def update_csv_cell(csv_path: Path, row_idx: int, column_name: str, value: Any) -> None:
+    if row_idx < 0:
+        raise ValueError("row index must be non-negative")
+    if not csv_path.exists():
+        raise FileNotFoundError(str(csv_path))
+
+    with AUTOSAVE_LOCK:
+        df = pd.read_csv(csv_path, dtype=object, keep_default_na=False)
+        if row_idx >= len(df):
+            raise IndexError(f"row {row_idx} is outside {csv_path.name}")
+        if column_name not in df.columns:
+            raise KeyError(column_name)
+        df.at[df.index[row_idx], column_name] = "" if value is None else value
+        save_editable_csv(csv_path, df)
+
+
+class CsvAutosaveHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def _send_json(self, status: int, payload: Dict[str, Any]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self) -> None:
+        self._send_json(200, {"ok": True})
+
+    def do_POST(self) -> None:
+        if urlparse(self.path).path != AUTOSAVE_ENDPOINT_PATH:
+            self._send_json(404, {"ok": False, "error": "unknown endpoint"})
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            token = str(payload.get("token", ""))
+            csv_path = csv_path_from_autosave_token(token)
+            update_csv_cell(
+                csv_path=csv_path,
+                row_idx=int(payload.get("row")),
+                column_name=str(payload.get("column", "")),
+                value=payload.get("value", ""),
+            )
+            self._send_json(200, {"ok": True})
+        except Exception as exc:
+            self._send_json(400, {"ok": False, "error": str(exc)})
+
+
+def ensure_csv_autosave_server() -> int:
+    global AUTOSAVE_SERVER_PORT, AUTOSAVE_SERVER_STARTED
+    if AUTOSAVE_SERVER_STARTED:
+        return AUTOSAVE_SERVER_PORT
+
+    server = None
+    for port in range(8765, 8785):
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", port), CsvAutosaveHandler)
+            AUTOSAVE_SERVER_PORT = port
+            break
+        except OSError:
+            continue
+    if server is None:
+        raise RuntimeError("Could not start local CSV autosave server on ports 8765-8784")
+
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    AUTOSAVE_SERVER_STARTED = True
+    return AUTOSAVE_SERVER_PORT
+
+
 def editable_template_state_key(csv_path: Path) -> str:
     return f"editable_template_df::{csv_path}"
 
@@ -478,6 +600,8 @@ def set_editable_template_df(csv_path: Path, df: pd.DataFrame) -> None:
 def flush_editable_csv_states(csv_groups: Dict[str, List[tuple[str, Path]]]) -> None:
     for files_for_treatment in csv_groups.values():
         for _, csv_path in files_for_treatment:
+            if csv_path.stem.lower().startswith("cuttingspecs_"):
+                continue
             state_key = editable_template_state_key(csv_path)
             df = st.session_state.get(state_key)
             if isinstance(df, pd.DataFrame):
@@ -594,11 +718,386 @@ def render_editable_template_table(df: pd.DataFrame, editor_key: str, csv_path: 
     )
 
 
+def render_autosave_csv_grid(df: pd.DataFrame, editor_key: str, csv_path: Path) -> None:
+    port = ensure_csv_autosave_server()
+    token = csv_autosave_token(csv_path)
+
+    display_df = df.fillna("").astype(str)
+    payload = {
+        "columns": list(display_df.columns),
+        "rows": display_df.to_dict(orient="records"),
+        "token": token,
+        "endpoint": f"http://127.0.0.1:{port}{AUTOSAVE_ENDPOINT_PATH}",
+    }
+    payload_json = json.dumps(payload)
+    table_height = min(max(280, 38 * (len(display_df) + 4)), 560)
+    summary_height = min(max(180, 32 * (len(display_df) + 2)), 360)
+    height = table_height + summary_height + 74
+    component_id = f"autosave-grid-{editor_key}".replace("\\", "-").replace("/", "-")
+    html = f"""
+    <div id="{component_id}" class="fm-autosave-grid">
+      <div class="fm-autosave-status" data-role="status">Autosave ready</div>
+      <div class="fm-autosave-table-wrap" data-role="wrap"></div>
+      <div class="fm-autosave-summary">
+        <div class="fm-autosave-summary-title">Overall Cutting Specs</div>
+        <div class="fm-autosave-summary-wrap" data-role="summary"></div>
+      </div>
+    </div>
+    <style>
+      .fm-autosave-grid {{
+        border: 1px solid #d8ded7;
+        border-radius: 8px;
+        background: #ffffff;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }}
+      .fm-autosave-status {{
+        padding: 8px 10px;
+        color: #516050;
+        font-size: 13px;
+        border-bottom: 1px solid #edf1ec;
+      }}
+      .fm-autosave-status[data-state="saving"] {{ color: #856404; }}
+      .fm-autosave-status[data-state="saved"] {{ color: #1f6b3a; }}
+      .fm-autosave-status[data-state="error"] {{ color: #9d1c1c; }}
+      .fm-autosave-table-wrap {{
+        height: {table_height}px;
+        overflow: auto;
+        position: relative;
+      }}
+      .fm-autosave-table {{
+        border-collapse: separate;
+        border-spacing: 0;
+        min-width: max-content;
+        width: 100%;
+        table-layout: fixed;
+      }}
+      .fm-autosave-table th,
+      .fm-autosave-table td {{
+        border-right: 1px solid #e4e9e2;
+        border-bottom: 1px solid #e4e9e2;
+        background: #fff;
+        min-width: 96px;
+        width: 96px;
+        height: 34px;
+        padding: 0;
+      }}
+      .fm-autosave-table th {{
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f5f8f3;
+        color: #273326;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 8px 6px;
+        text-align: left;
+      }}
+      .fm-autosave-table th:nth-child(1),
+      .fm-autosave-table td:nth-child(1) {{
+        position: sticky;
+        left: 0;
+        z-index: 3;
+        min-width: 140px;
+        width: 140px;
+      }}
+      .fm-autosave-table th:nth-child(2),
+      .fm-autosave-table td:nth-child(2) {{
+        position: sticky;
+        left: 140px;
+        z-index: 3;
+        min-width: 130px;
+        width: 130px;
+      }}
+      .fm-autosave-table th:nth-child(1),
+      .fm-autosave-table th:nth-child(2) {{
+        z-index: 4;
+      }}
+      .fm-autosave-table td:nth-child(1),
+      .fm-autosave-table td:nth-child(2) {{
+        background: #fafcf8;
+        color: #273326;
+        font-weight: 600;
+        padding: 0 8px;
+        font-size: 12px;
+      }}
+      .fm-autosave-input {{
+        box-sizing: border-box;
+        width: 100%;
+        height: 34px;
+        border: 0;
+        outline: none;
+        padding: 6px 8px;
+        background: transparent;
+        font: inherit;
+        font-size: 13px;
+      }}
+      .fm-autosave-input:focus {{
+        background: #fffbe6;
+        box-shadow: inset 0 0 0 2px #5a7f54;
+      }}
+      .fm-autosave-input[data-dirty="true"] {{
+        background: #fff7d1;
+      }}
+      .fm-autosave-summary {{
+        border-top: 1px solid #d8ded7;
+        background: #fbfdf9;
+      }}
+      .fm-autosave-summary-title {{
+        padding: 10px 10px 4px;
+        color: #273326;
+        font-size: 14px;
+        font-weight: 700;
+      }}
+      .fm-autosave-summary-wrap {{
+        height: {summary_height}px;
+        overflow: auto;
+      }}
+      .fm-autosave-summary-table {{
+        border-collapse: separate;
+        border-spacing: 0;
+        width: 100%;
+        min-width: 620px;
+      }}
+      .fm-autosave-summary-table th,
+      .fm-autosave-summary-table td {{
+        border-right: 1px solid #e4e9e2;
+        border-bottom: 1px solid #e4e9e2;
+        padding: 7px 8px;
+        background: #ffffff;
+        font-size: 12px;
+        text-align: right;
+      }}
+      .fm-autosave-summary-table th {{
+        position: sticky;
+        top: 0;
+        background: #edf3ea;
+        color: #273326;
+        text-align: left;
+        z-index: 1;
+      }}
+      .fm-autosave-summary-table td:nth-child(1),
+      .fm-autosave-summary-table td:nth-child(2),
+      .fm-autosave-summary-table th:nth-child(1),
+      .fm-autosave-summary-table th:nth-child(2) {{
+        text-align: left;
+      }}
+      .fm-autosave-summary-table tr:last-child td {{
+        background: #f2f7ef;
+        font-weight: 700;
+      }}
+    </style>
+    <script>
+    (() => {{
+      const payload = {payload_json};
+      const root = document.getElementById({json.dumps(component_id)});
+      const wrap = root.querySelector('[data-role="wrap"]');
+      const summaryWrap = root.querySelector('[data-role="summary"]');
+      const status = root.querySelector('[data-role="status"]');
+      let saveTimer = null;
+      setStatus("Autosave ready on port " + new URL(payload.endpoint).port, "");
+
+      function setStatus(text, state) {{
+        status.textContent = text;
+        status.dataset.state = state || "";
+      }}
+
+      function cellText(value) {{
+        return value === null || value === undefined ? "" : String(value);
+      }}
+
+      function toNumber(value) {{
+        const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+        return Number.isFinite(parsed) ? parsed : 0;
+      }}
+
+      function formatNumber(value) {{
+        return Number(value).toLocaleString(undefined, {{
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2
+        }});
+      }}
+
+      function editableValue(rowIndex, column) {{
+        const input = root.querySelector(
+          `.fm-autosave-input[data-row="${{rowIndex}}"][data-column="${{CSS.escape(column)}}"]`
+        );
+        if (input) return input.value;
+        return cellText(payload.rows[rowIndex]?.[column]);
+      }}
+
+      function computeSummaryRows() {{
+        const speciesColumns = payload.columns.filter(column =>
+          column !== "Stand.Layer" &&
+          column !== "DBH.Class" &&
+          !String(column).endsWith(".%")
+        );
+        const rows = [];
+        let totalCut = 0;
+        let totalLeave = 0;
+        payload.rows.forEach((row, rowIndex) => {{
+          let total = 0;
+          let cut = 0;
+          speciesColumns.forEach(species => {{
+            const value = toNumber(editableValue(rowIndex, species));
+            const percent = toNumber(editableValue(rowIndex, `${{species}}.%`));
+            total += value;
+            cut += value * percent / 100;
+          }});
+          const leave = total - cut;
+          const overall = total ? cut / total * 100 : 0;
+          totalCut += cut;
+          totalLeave += leave;
+          rows.push({{
+            layer: cellText(row["Stand.Layer"]),
+            dbh: cellText(row["DBH.Class"]),
+            overall,
+            cut,
+            leave
+          }});
+        }});
+        const grandTotal = totalCut + totalLeave;
+        rows.push({{
+          layer: "Totals",
+          dbh: "Totals",
+          overall: grandTotal ? totalCut / grandTotal * 100 : 0,
+          cut: totalCut,
+          leave: totalLeave
+        }});
+        return rows;
+      }}
+
+      function renderSummary() {{
+        const table = document.createElement("table");
+        table.className = "fm-autosave-summary-table";
+        const thead = document.createElement("thead");
+        const headRow = document.createElement("tr");
+        ["Stand.Layer", "DBH.Class", "Overall Cutting Specs", "Cut", "Leave"].forEach(label => {{
+          const th = document.createElement("th");
+          th.textContent = label;
+          headRow.appendChild(th);
+        }});
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+        computeSummaryRows().forEach(row => {{
+          const tr = document.createElement("tr");
+          [row.layer, row.dbh, formatNumber(row.overall), formatNumber(row.cut), formatNumber(row.leave)].forEach(value => {{
+            const td = document.createElement("td");
+            td.textContent = value;
+            tr.appendChild(td);
+          }});
+          tbody.appendChild(tr);
+        }});
+        table.appendChild(tbody);
+        summaryWrap.replaceChildren(table);
+      }}
+
+      function saveCell(input) {{
+        const value = input.value;
+        if (value === input.dataset.lastSaved) {{
+          input.dataset.dirty = "false";
+          renderSummary();
+          return;
+        }}
+        input.dataset.dirty = "true";
+        renderSummary();
+        setStatus("Saving...", "saving");
+        fetch(payload.endpoint, {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            token: payload.token,
+            row: Number(input.dataset.row),
+            column: input.dataset.column,
+            value
+          }})
+        }})
+        .then(response => response.json())
+        .then(result => {{
+          if (!result.ok) throw new Error(result.error || "Save failed");
+          input.dataset.lastSaved = value;
+          input.dataset.dirty = "false";
+          setStatus("Saved " + input.dataset.column + " row " + (Number(input.dataset.row) + 1), "saved");
+        }})
+        .catch(error => {{
+          input.dataset.dirty = "true";
+          setStatus("Autosave failed: " + error.message, "error");
+        }});
+      }}
+
+      function queueSave(input) {{
+        window.clearTimeout(saveTimer);
+        renderSummary();
+        saveTimer = window.setTimeout(() => saveCell(input), 250);
+      }}
+
+      const table = document.createElement("table");
+      table.className = "fm-autosave-table";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      payload.columns.forEach(column => {{
+        const th = document.createElement("th");
+        th.textContent = column;
+        headRow.appendChild(th);
+      }});
+      thead.appendChild(headRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      payload.rows.forEach((row, rowIndex) => {{
+        const tr = document.createElement("tr");
+        payload.columns.forEach((column, colIndex) => {{
+          const td = document.createElement("td");
+          const value = cellText(row[column]);
+          if (colIndex < 2) {{
+            td.textContent = value;
+          }} else {{
+            const input = document.createElement("input");
+            input.className = "fm-autosave-input";
+            input.value = value;
+            input.dataset.lastSaved = value;
+            input.dataset.row = String(rowIndex);
+            input.dataset.column = column;
+            input.draggable = false;
+            input.addEventListener("focus", () => input.select());
+            input.addEventListener("mouseup", event => event.preventDefault());
+            input.addEventListener("dragstart", event => event.preventDefault());
+            input.addEventListener("dragover", event => event.preventDefault());
+            input.addEventListener("drop", event => event.preventDefault());
+            input.addEventListener("change", () => saveCell(input));
+            input.addEventListener("blur", () => saveCell(input));
+            input.addEventListener("keydown", event => {{
+              if (event.key === "Enter") {{
+                event.preventDefault();
+                saveCell(input);
+                const next = root.querySelector(
+                  `.fm-autosave-input[data-row="${{Number(input.dataset.row) + 1}}"][data-column="${{CSS.escape(input.dataset.column)}}"]`
+                );
+                if (next) next.focus();
+              }}
+            }});
+            input.addEventListener("input", () => queueSave(input));
+            td.appendChild(input);
+          }}
+          tr.appendChild(td);
+        }});
+        tbody.appendChild(tr);
+      }});
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      renderSummary();
+    }})();
+    </script>
+    """
+    components.html(html, height=height, scrolling=False)
+
+
 def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
     start_panel("fm-template-card")
     st.markdown(f"**{label}**")
-    df = get_editable_template_df(csv_path)
     is_cutting_specs = csv_path.stem.lower().startswith("cuttingspecs_")
+    df = load_editable_csv(csv_path) if is_cutting_specs else get_editable_template_df(csv_path)
     if df.empty and not csv_path.exists():
         st.warning(f"Missing template file: {csv_path.name}")
         end_panel()
@@ -698,32 +1197,27 @@ def render_csv_editor_card(label: str, csv_path: Path, editor_key: str) -> None:
                     trigger_rerun()
 
     if is_cutting_specs:
-        st.markdown("<div class='fm-template-wrap'>", unsafe_allow_html=True)
-        edited_df = render_editable_template_table(df, editor_key, csv_path)
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("**Overall Cutting Specs**")
-        st.caption("Live summary from the current cutting specs inputs. This updates before save.")
-        st.dataframe(
-            compute_cutting_specs_summary(edited_df),
-            use_container_width=True,
-            height=min(max(220, 42 * (len(edited_df) + 3)), 520),
-        )
+        render_autosave_csv_grid(df, editor_key, csv_path)
+        edited_df = df
     else:
         st.markdown("<div class='fm-template-wrap'>", unsafe_allow_html=True)
         edited_df = render_editable_template_table(df, editor_key, csv_path)
         st.markdown("</div>", unsafe_allow_html=True)
-    edited_df = st.session_state.get(editable_template_state_key(csv_path), edited_df)
-    set_editable_template_df(csv_path, edited_df)
-    save_table_col1, save_table_col2 = st.columns([0.9, 2.1])
-    with save_table_col1:
-        if st.button("Save CSV", key=f"{editor_key}_save_csv", use_container_width=False):
-            if edited_df is not None and not edited_df.empty:
-                save_editable_csv(csv_path, edited_df)
-                st.success(f"Saved {csv_path.name}.")
-            else:
-                st.info(f"No editable data available to save for {csv_path.name}.")
-    with save_table_col2:
-        st.caption("Save any changes here for them to update the backend CSV used by later steps.")
+    if not is_cutting_specs:
+        edited_df = st.session_state.get(editable_template_state_key(csv_path), edited_df)
+        set_editable_template_df(csv_path, edited_df)
+        save_table_col1, save_table_col2 = st.columns([0.9, 2.1])
+        with save_table_col1:
+            if st.button("Save CSV", key=f"{editor_key}_save_csv", use_container_width=False):
+                if edited_df is not None and not edited_df.empty:
+                    save_editable_csv(csv_path, edited_df)
+                    st.success(f"Saved {csv_path.name}.")
+                else:
+                    st.info(f"No editable data available to save for {csv_path.name}.")
+        with save_table_col2:
+            st.caption("Save any changes here for them to update the backend CSV used by later steps.")
+    else:
+        st.caption("Cutting spec edits autosave directly to the backend CSV.")
     end_panel()
 
 
