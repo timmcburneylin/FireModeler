@@ -12,6 +12,57 @@ step025 <- function(cfg, root) {
     a
   }
 
+  coerce_numeric_columns <- function(df, id_cols) {
+    value_cols <- setdiff(names(df), id_cols)
+    df[value_cols] <- lapply(df[value_cols], function(x) {
+      x <- as.character(x)
+      x <- gsub("\u00A0", "", x, fixed = TRUE)
+      x <- trimws(x)
+      x[x %in% c("", "NA", "N/A", "na", "n/a", "NaN")] <- NA_character_
+      values <- suppressWarnings(as.numeric(x))
+      values[is.na(values)] <- 0
+      values
+    })
+    df
+  }
+
+  restore_existing_cut_percentages <- function(cut_spec, out_path) {
+    if (!file.exists(out_path)) {
+      return(cut_spec)
+    }
+
+    existing <- read.csv(out_path, check.names = FALSE, stringsAsFactors = FALSE)
+    names(existing) <- trimws(names(existing))
+    if (!all(c("Stand.Layer", "DBH.Class") %in% names(existing))) {
+      return(cut_spec)
+    }
+
+    pct_cols <- names(cut_spec)[endsWith(names(cut_spec), ".%")]
+    pct_cols <- intersect(pct_cols, names(existing))
+    if (!length(pct_cols)) {
+      return(cut_spec)
+    }
+
+    existing_pct <- existing[, c("Stand.Layer", "DBH.Class", pct_cols), drop = FALSE]
+    existing_pct[pct_cols] <- lapply(existing_pct[pct_cols], function(x) {
+      values <- suppressWarnings(as.numeric(trimws(gsub("\u00A0", "", as.character(x), fixed = TRUE))))
+      values[is.na(values)] <- 0
+      values
+    })
+
+    merged <- dplyr::left_join(
+      cut_spec[, c("Stand.Layer", "DBH.Class"), drop = FALSE],
+      existing_pct,
+      by = c("Stand.Layer", "DBH.Class")
+    )
+
+    for (col in pct_cols) {
+      cut_spec[[col]] <- dplyr::coalesce(merged[[col]], cut_spec[[col]])
+    }
+
+    cut_spec
+  }
+
   project_name <- cfg$project_name %||% ""
   if (!nzchar(project_name)) {
     stop("config project_name is required for Cutting Specs")
@@ -52,6 +103,8 @@ step025 <- function(cfg, root) {
     if ("Dead" %in% colnames(US.SPH)) {
       US.SPH <- US.SPH |> dplyr::rename(DP = Dead)
     }
+    OS.SPH <- coerce_numeric_columns(OS.SPH, "DBH.Class")
+    US.SPH <- coerce_numeric_columns(US.SPH, "Layer")
 
     SPHtemp <- data.frame(
       "Stand Layer" = c("L4", "L3", "L2", "L1", "L1", "L1", "L1", "L1", "L1"),
@@ -103,6 +156,7 @@ step025 <- function(cfg, root) {
     if (!length(species_cols)) {
       stop("No species columns found in cutting specs inputs for treatment ", treatment)
     }
+    SPH <- coerce_numeric_columns(SPH, c("Stand Layer", "DBH Class"))
     desc_cols <- c("Stand Layer", "DBH Class")
     spp_cols <- names(SPH)[!names(SPH) %in% desc_cols]
     interleaved <- as.vector(rbind(spp_cols, paste0(spp_cols, ".%")))
@@ -112,6 +166,7 @@ step025 <- function(cfg, root) {
     names(cutspec_out_mod) <- gsub("^DBH Class$", "DBH.Class", names(cutspec_out_mod))
 
     out_path <- file.path(treatment_folder, paste0("cuttingSpecs_", treatment, ".csv"))
+    cutspec_out_mod <- restore_existing_cut_percentages(cutspec_out_mod, out_path)
     write.csv(cutspec_out_mod, out_path, row.names = FALSE)
     generated[[treatment]] <- out_path
   }
