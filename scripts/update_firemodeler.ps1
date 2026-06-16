@@ -16,11 +16,29 @@ function Write-Step([string]$Message) {
 }
 
 function Invoke-Git([string[]]$Arguments) {
-  $output = & git @Arguments 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    throw "Git command failed: git $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)"
+  $stdoutPath = [System.IO.Path]::GetTempFileName()
+  $stderrPath = [System.IO.Path]::GetTempFileName()
+  try {
+    & git @Arguments 1> $stdoutPath 2> $stderrPath
+    $exitCode = $LASTEXITCODE
+
+    $output = @()
+    $stdout = Get-Content -Path $stdoutPath -ErrorAction SilentlyContinue
+    $stderr = Get-Content -Path $stderrPath -ErrorAction SilentlyContinue
+    if ($null -ne $stdout) {
+      $output += @($stdout) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+    if ($null -ne $stderr) {
+      $output += @($stderr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    }
+
+    if ($exitCode -ne 0) {
+      throw "Git command failed: git $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)"
+    }
+    return @($output)
+  } finally {
+    Remove-Item -Path $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
   }
-  return @($output)
 }
 
 Write-Step "Checking this FireModeler installation"
