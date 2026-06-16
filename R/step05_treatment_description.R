@@ -341,7 +341,7 @@ step05 <- function(cfg, root) {
     plot_CutLeaveVOL <- ggplot(CutLeave_summaryVOL, aes(x = factor(Midpoint), y = VOL, fill = Type)) +
       geom_col(position = "stack", width = 0.7) +
       scale_fill_manual(values = c("Cut" = "#C0C0C0", "Leave" = "#8B1F1F")) +
-      scale_x_discrete(labels = c("0", "5", "10", "17.5", "22.5", "27.5", "35", "45", "45+")) +
+      scale_x_discrete(labels = c("15", "20", "25", "30", "40", "45+")) +
       labs(
         title = paste("Volume cutting distribution FTU:", treatment),
         x = "Diameter Class Midpoint (cm)",
@@ -374,7 +374,7 @@ step05 <- function(cfg, root) {
     plot_CutLeaveBA <- ggplot(CutLeave_summaryBA, aes(x = factor(Midpoint), y = BA, fill = Type)) +
       geom_col(position = "stack", width = 0.7) +
       scale_fill_manual(values = c("Cut" = "#C0C0C0", "Leave" = "#1F5F8B")) +
-      scale_x_discrete(labels = c("0", "5", "10", "17.5", "22.5", "27.5", "35", "45", "45+")) +
+      scale_x_discrete(labels = c("15", "20", "25", "30", "40", "45+")) +
       labs(
         title = paste("Basal area cutting distribution FTU:", treatment),
         x = "Diameter Class Midpoint (cm)",
